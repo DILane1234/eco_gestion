@@ -1,0 +1,44 @@
+name: eco_gestion
+description: "A new Flutter project."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  flutter_svg: ^2.0.9
+  firebase_database: ^11.3.6          # mise à jour mineure
+  percent_indicator: ^4.2.3
+  image_picker: ^1.0.12
+  stylish_bottom_bar: ^1.1.1
+  firebase_core: ^3.13.1              # mise à jour majeure
+  cloud_firestore: ^5.6.8             # mise à jour majeure
+  firebase_auth: ^5.5.4               # mise à jour majeure
+  firebase_storage: ^12.4.6           # mise à jour majeure
+  firebase_messaging: ^15.2.6         # mise à jour majeure
+  provider: ^6.1.1
+  fl_chart: ^1.0.0                    # mise à jour majeure
+  shared_preferences: ^2.2.5
+  mqtt_client: ^10.8.0                # mise à jour mineure
+  intl: ^0.20.2                      # mise à jour mineure
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0              # mise à jour majeure
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+  fonts:
+    - family: Poppins
+      fonts:
+        - asset: assets/fonts/Poppins/Poppins-Regular.ttf
+        - asset: assets/fonts/Poppins/Poppins-Bold.ttf
+        - asset: assets/fonts/Poppins/Poppins-Light.ttf

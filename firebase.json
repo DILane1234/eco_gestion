@@ -1,0 +1,22 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "ecogestionapp",
+          "appId": "1:1030131641397:android:d98086369b83b2dccc557c",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "ecogestionapp",
+          "configurations": {
+            "android": "1:1030131641397:android:d98086369b83b2dccc557c",
+            "web": "1:1030131641397:web:2cf6e988cc23573bcc557c"
+          }
+        }
+      }
+    }
+  }
+}
