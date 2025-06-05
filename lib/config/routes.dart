@@ -37,8 +37,42 @@ class AppRoutes {
     settings: (context) => const SettingsScreen(),
     forgotPassword: (context) => const ForgotPasswordScreen(),
     register: (context) => const RegisterScreen(),
-    smartMeterDetail: (context) =>
-        const SmartMeterDetail(meterId: 'compteur1', isOwner: true),
+    // Supprimer cette ligne
+    // smartMeterDetail: (context) =>
+    //     const SmartMeterDetail(meterId: 'compteur1', isOwner: true),
     changePassword: (context) => const ChangePasswordScreen(),
-  };
+};
+
+  // Ajouter cette méthode dans la classe AppRoutes
+  static Route<dynamic> onGenerateRoute(RouteSettings settings) {
+    if (settings.name == smartMeterDetail) {
+      // Récupérer les arguments
+      final args = settings.arguments as Map<String, dynamic>?;
+      
+      // Vérifier si l'ID du compteur est fourni
+      if (args == null || args['meterId'] == null) {
+        return MaterialPageRoute(
+          builder: (context) => const Scaffold(
+            body: Center(child: Text('Erreur: ID du compteur manquant')),
+          ),
+        );
+      }
+      
+      return MaterialPageRoute(
+        builder: (context) => SmartMeterDetail(
+          meterId: args['meterId'] as String,
+          isOwner: args['isOwner'] as bool,
+        ),
+      );
+    }
+    
+
+    
+    
+    return MaterialPageRoute(
+      builder: (_) => const Scaffold(
+        body: Center(child: Text('Route non trouvée')),
+      ),
+    );
+  }
 }

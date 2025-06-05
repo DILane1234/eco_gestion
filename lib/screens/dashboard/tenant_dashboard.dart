@@ -1,7 +1,9 @@
+import 'package:eco_gestion/screens/smart_meter/smart_meter_detail.dart';
 import 'package:eco_gestion/widgets/consumption_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:eco_gestion/services/firebase_service.dart';
 import 'package:eco_gestion/config/routes.dart';
+import 'package:flutter/services.dart';
 
 class TenantDashboard extends StatefulWidget {
   const TenantDashboard({super.key});
@@ -14,6 +16,8 @@ class _TenantDashboardState extends State<TenantDashboard> {
   final FirebaseService _firebaseService = FirebaseService();
   int _selectedIndex = 0;
   bool _isLoading = false; // Ajout de la variable manquante
+  DateTime? _lastBackPressTime;
+  bool _isExiting = false;
 
   void _onItemTapped(int index) {
     setState(() {
@@ -49,84 +53,115 @@ class _TenantDashboardState extends State<TenantDashboard> {
     }
   }
 
+  Future<void> _exitApp() async {
+    if (!_isExiting) {
+      _isExiting = true;
+      // Ferme l'application et nettoie la pile de navigation
+      SystemChannels.platform.invokeMethod(
+          'SystemNavigator.pop'); // Ferme proprement l'application
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tableau de bord'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.profile);
-            },
-            tooltip: 'Mon Profil',
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.settings);
-            },
-            tooltip: 'Paramètres',
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              final BuildContext currentContext = context;
-              final bool? confirm = await showDialog<bool>(
-                context: currentContext,
-                builder: (BuildContext context) {
-                  return AlertDialog(
-                    title: const Text('Déconnexion'),
-                    content: const Text(
-                      'Êtes-vous sûr de vouloir vous déconnecter ?',
-                    ),
-                    actions: <Widget>[
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        child: const Text('Annuler'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        child: const Text('Déconnexion'),
-                      ),
-                    ],
-                  );
-                },
-              );
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
 
-              if (confirm == true) {
-                await _firebaseService.signOut();
-                if (mounted) {
-                  Navigator.pushReplacementNamed(currentContext, AppRoutes.login);
+        final now = DateTime.now();
+        if (_lastBackPressTime == null ||
+            now.difference(_lastBackPressTime!) > const Duration(seconds: 2)) {
+          _lastBackPressTime = now;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Appuyez à nouveau pour quitter'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else {
+          _exitApp(); // Utilise la méthode _exitApp au lieu de exit(0)
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          title: const Text('Tableau de bord'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.person),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.profile);
+              },
+              tooltip: 'Mon Profil',
+            ),
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.settings);
+              },
+              tooltip: 'Paramètres',
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () async {
+                final BuildContext currentContext = context;
+                final bool? confirm = await showDialog<bool>(
+                  context: currentContext,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      title: const Text('Déconnexion'),
+                      content: const Text(
+                        'Êtes-vous sûr de vouloir vous déconnecter ?',
+                      ),
+                      actions: <Widget>[
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Annuler'),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('Déconnexion'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+
+                if (confirm == true) {
+                  await _firebaseService.signOut();
+                  if (mounted) {
+                    Navigator.pushReplacementNamed(
+                        currentContext, AppRoutes.login);
+                  }
                 }
-              }
-            },
-            tooltip: 'Déconnexion',
-          ),
-        ],
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Accueil'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.electric_meter),
-            label: 'Consommation',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.history),
-            label: 'Historique',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.tips_and_updates),
-            label: 'Conseils',
-          ),
-        ],
-        currentIndex: _selectedIndex,
-        selectedItemColor: Colors.green,
-        unselectedItemColor: Colors.grey,
-        onTap: _onItemTapped,
+              },
+              tooltip: 'Déconnexion',
+            ),
+          ],
+        ),
+        body: _buildBody(),
+        bottomNavigationBar: BottomNavigationBar(
+          items: const <BottomNavigationBarItem>[
+            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Accueil'),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.electric_meter),
+              label: 'Consommation',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.history),
+              label: 'Historique',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.tips_and_updates),
+              label: 'Conseils',
+            ),
+          ],
+          currentIndex: _selectedIndex,
+          selectedItemColor: Colors.green,
+          unselectedItemColor: Colors.grey,
+          onTap: _onItemTapped,
+        ),
       ),
     );
   }
@@ -225,89 +260,163 @@ class _TenantDashboardState extends State<TenantDashboard> {
   }
 
   Widget _buildConsumptionTab() {
-    // Données fictives pour la consommation mensuelle
-    final List<double> monthlyData = [
-      120, 140, 160, 180, 200, 220, 
-      250, 230, 210, 190, 170, 150
-    ];
-    
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Ma consommation',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 24),
-          
-          // Graphique de consommation mensuelle
-          ConsumptionChart(
-            monthlyData: monthlyData,
-            title: 'Consommation mensuelle',
-            barColor: Colors.green,
-          ),
-          
-          const SizedBox(height: 24),
-          
-          // Statistiques de consommation
-          const Text(
-            'Statistiques',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-          
-          // Cartes de statistiques
-          Row(
+    return FutureBuilder<Map<String, dynamic>>(
+      future: _firebaseService.getStatistics(false), // false pour le locataire
+      builder: (context, statsSnapshot) {
+        if (statsSnapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (statsSnapshot.hasError) {
+          return Center(child: Text('Erreur: ${statsSnapshot.error}'));
+        }
+
+        final stats = statsSnapshot.data ?? {};
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Moyenne', 
-                  '195 kWh', 
-                  Icons.show_chart,
-                  Colors.blue,
+              const Text(
+                'Ma consommation',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 24),
+              FutureBuilder<List<double>>(
+                future: _firebaseService
+                    .getMonthlyData(false), // false pour le locataire
+                builder: (context, monthlySnapshot) {
+                  if (monthlySnapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  if (monthlySnapshot.hasError) {
+                    return Center(
+                        child: Text('Erreur: ${monthlySnapshot.error}'));
+                  }
+
+                  final monthlyData = monthlySnapshot.data ?? [];
+
+                  if (monthlyData.isEmpty) {
+                    return const Center(
+                        child: Text('Aucune donnée disponible'));
+                  }
+
+                  return SizedBox(
+                    width: double.infinity,
+                    height: 300,
+                    child: ConsumptionChart(
+                      monthlyData: monthlyData,
+                      title: 'Consommation mensuelle',
+                      barColor: Colors.green,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Statistiques',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard(
+                            'Moyenne',
+                            '${stats['average'] ?? 'N/A'} kWh',
+                            Icons.show_chart,
+                            Colors.blue,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _buildStatCard(
+                            'Maximum',
+                            '${stats['maximum'] ?? 'N/A'} kWh',
+                            Icons.arrow_upward,
+                            Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildStatCard(
+                            'Minimum',
+                            '${stats['minimum'] ?? 'N/A'} kWh',
+                            Icons.arrow_downward,
+                            Colors.green,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _buildStatCard(
+                            'Total annuel',
+                            '${stats['annual_total'] ?? 'N/A'} kWh',
+                            Icons.calendar_today,
+                            Colors.purple,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  'Maximum', 
-                  '250 kWh', 
-                  Icons.arrow_upward,
-                  Colors.red,
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: Card(
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => SmartMeterDetail(
+                            meterId: 'compteur1',
+                            isOwner: false,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          Icon(Icons.electric_meter, color: Colors.green),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Text(
+                              'Accéder à mon compteur intelligent',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.arrow_forward_ios, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: _buildStatCard(
-                  'Minimum', 
-                  '120 kWh', 
-                  Icons.arrow_downward,
-                  Colors.green,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildStatCard(
-                  'Total annuel', 
-                  '2320 kWh', 
-                  Icons.calendar_today,
-                  Colors.purple,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+  Widget _buildStatCard(
+      String title, String value, IconData icon, Color color) {
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -345,11 +454,11 @@ class _TenantDashboardState extends State<TenantDashboard> {
   }
 
   // Supprimez la méthode _buildEnergyTypeRow qui n'est pas utilisée
-  
+
   Widget _buildHistoryTab() {
     return ListView.builder(
       padding: const EdgeInsets.all(16.0),
-      itemCount: 12, 
+      itemCount: 12,
       itemBuilder: (context, index) {
         // Calcul du mois (mois actuel - index)
         final now = DateTime.now();
@@ -475,7 +584,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
           margin: const EdgeInsets.only(bottom: 16.0),
           child: ExpansionTile(
             leading: CircleAvatar(
-              backgroundColor: (tip['color'] as Color).withOpacity(0.2),
+              backgroundColor: (tip['color'] as Color).withAlpha(51),
               child: Icon(
                 tip['icon'] as IconData,
                 color: tip['color'] as Color,

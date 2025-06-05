@@ -55,13 +55,12 @@ class _MeterHistoryScreenState extends State<MeterHistoryScreen> {
     final endTimestamp = endDate.millisecondsSinceEpoch;
 
     try {
-      final snapshot =
-          await _historyRef
-              .child(widget.meterId)
-              .orderByChild('timestamp')
-              .startAt(startTimestamp)
-              .endAt(endTimestamp)
-              .get();
+      final snapshot = await _historyRef
+          .child(widget.meterId)
+          .orderByChild('timestamp')
+          .startAt(startTimestamp)
+          .endAt(endTimestamp)
+          .get();
 
       if (snapshot.exists && snapshot.value != null) {
         Map<dynamic, dynamic> rawData;
@@ -75,20 +74,17 @@ class _MeterHistoryScreenState extends State<MeterHistoryScreen> {
 
           rawData.forEach((key, value) {
             if (value is Map) {
-              final timestamp =
-                  value['timestamp'] is int
-                      ? value['timestamp'] as int
-                      : int.tryParse(value['timestamp'].toString()) ?? 0;
+              final timestamp = value['timestamp'] is int
+                  ? value['timestamp'] as int
+                  : int.tryParse(value['timestamp'].toString()) ?? 0;
 
-              final power =
-                  value['power'] is num
-                      ? (value['power'] as num).toDouble()
-                      : double.tryParse(value['power'].toString()) ?? 0.0;
+              final power = value['power'] is num
+                  ? (value['power'] as num).toDouble()
+                  : double.tryParse(value['power'].toString()) ?? 0.0;
 
-              final energy =
-                  value['energy'] is num
-                      ? (value['energy'] as num).toDouble()
-                      : double.tryParse(value['energy'].toString()) ?? 0.0;
+              final energy = value['energy'] is num
+                  ? (value['energy'] as num).toDouble()
+                  : double.tryParse(value['energy'].toString()) ?? 0.0;
 
               // Normaliser le timestamp pour l'affichage sur le graphique
               final normalizedX = _normalizeTimestamp(
@@ -176,30 +172,39 @@ class _MeterHistoryScreenState extends State<MeterHistoryScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDarkMode ? Colors.white : Colors.black;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Historique du compteur'),
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              setState(() {
-                _selectedPeriod = value;
-              });
-              _loadHistoryData();
-            },
-            itemBuilder:
-                (context) => [
-                  const PopupMenuItem(value: 'day', child: Text('Jour')),
-                  const PopupMenuItem(value: 'week', child: Text('Semaine')),
-                  const PopupMenuItem(value: 'month', child: Text('Mois')),
-                ],
+    return PopScope(
+      canPop: true,
+      onPopInvoked: (didPop) {
+        if (!didPop) {
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Historique du compteur'),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.of(context).pop(),
           ),
-        ],
-      ),
-      body:
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Padding(
+          actions: [
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                setState(() {
+                  _selectedPeriod = value;
+                });
+                _loadHistoryData();
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(value: 'day', child: Text('Jour')),
+                const PopupMenuItem(value: 'week', child: Text('Semaine')),
+                const PopupMenuItem(value: 'month', child: Text('Mois')),
+              ],
+            ),
+          ],
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,6 +242,7 @@ class _MeterHistoryScreenState extends State<MeterHistoryScreen> {
                   ],
                 ),
               ),
+      ),
     );
   }
 
@@ -276,16 +282,15 @@ class _MeterHistoryScreenState extends State<MeterHistoryScreen> {
                 getTitlesWidget: (value, meta) {
                   if (value % 2 == 0) {
                     final endDate = DateTime.now();
-                    final startDate =
-                        _selectedPeriod == 'day'
-                            ? endDate.subtract(const Duration(days: 1))
-                            : _selectedPeriod == 'week'
+                    final startDate = _selectedPeriod == 'day'
+                        ? endDate.subtract(const Duration(days: 1))
+                        : _selectedPeriod == 'week'
                             ? endDate.subtract(const Duration(days: 7))
                             : DateTime(
-                              endDate.year,
-                              endDate.month - 1,
-                              endDate.day,
-                            );
+                                endDate.year,
+                                endDate.month - 1,
+                                endDate.day,
+                              );
 
                     final startTimestamp = startDate.millisecondsSinceEpoch;
                     final endTimestamp = endDate.millisecondsSinceEpoch;
@@ -305,31 +310,40 @@ class _MeterHistoryScreenState extends State<MeterHistoryScreen> {
                 reservedSize: 40,
                 getTitlesWidget: (value, meta) {
                   return Text(
-                    value.toInt().toString(),
+                    value.toStringAsFixed(1),
                     style: const TextStyle(fontSize: 10),
                   );
                 },
               ),
             ),
-            topTitles: const AxisTitles(
-              sideTitles: SideTitles(showTitles: false),
-            ),
             rightTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
           ),
-          borderData: FlBorderData(show: true),
+          borderData: FlBorderData(
+            show: true,
+            border: Border.all(color: const Color(0xff37434d), width: 1),
+          ),
+          minX: 0,
+          maxX: 10,
+          minY: 0,
+          maxY: spots.isEmpty
+              ? 10
+              : spots.map((e) => e.y).reduce((a, b) => a > b ? a : b) * 1.2,
           lineBarsData: [
             LineChartBarData(
               spots: spots,
               isCurved: true,
               color: color,
-              barWidth: 3,
+              barWidth: 2,
               isStrokeCapRound: true,
               dotData: const FlDotData(show: false),
               belowBarData: BarAreaData(
                 show: true,
-                color: color.withOpacity(0.2),
+                color: color.withAlpha(26),
               ),
             ),
           ],

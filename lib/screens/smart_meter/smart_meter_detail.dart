@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:percent_indicator/circular_percent_indicator.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -24,8 +23,9 @@ class SmartMeterDetail extends StatefulWidget {
 class _SmartMeterDetailState extends State<SmartMeterDetail> {
   // Suppression de la ligne suivante
   // final FirebaseService _firebaseService = FirebaseService();
-  final DatabaseReference _meterRef = FirebaseDatabase.instance.ref('compteurs');
-  
+  final DatabaseReference _meterRef =
+      FirebaseDatabase.instance.ref('compteurs');
+
   bool _isOn = true;
   bool _hasError = false;
   bool _isOnline = true;
@@ -53,15 +53,16 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
   }
 
   void _setupRealtimeUpdates() {
-    _meterSubscription = _meterRef.child(widget.meterId).onValue.listen((event) {
+    _meterSubscription =
+        _meterRef.child(widget.meterId).onValue.listen((event) {
       if (event.snapshot.value != null) {
         final data = Map<String, dynamic>.from(event.snapshot.value as Map);
-        
+
         setState(() {
           _isOn = data['isOn'] ?? true;
           _hasError = data['hasError'] ?? false;
           _isOnline = data['isOnline'] ?? true;
-          
+
           _frequency = data['frequency']?.toDouble() ?? 49.9;
           _powerFactor = data['powerFactor']?.toDouble() ?? 0.0;
           _current = data['current']?.toDouble() ?? 0.0;
@@ -69,7 +70,7 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
           _energy = data['energy']?.toDouble() ?? 0.07;
           _voltage = data['voltage']?.toDouble() ?? 216.3;
         });
-        
+
         // Vérifier s'il y a une erreur et afficher une alerte si nécessaire
         if (_hasError && mounted) {
           _showErrorAlert();
@@ -83,14 +84,11 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
   void _showErrorAlert() {
     // Éviter d'afficher plusieurs alertes
     if (!_hasError) return;
-    
+
     // Créer une alerte dans Firebase
-    _notificationService.createAlert(
-      widget.meterId,
-      'Défaut détecté',
-      'Un problème a été détecté avec votre compteur intelligent.'
-    );
-    
+    _notificationService.createAlert(widget.meterId, 'Défaut détecté',
+        'Un problème a été détecté avec votre compteur intelligent.');
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Défaut détecté sur le compteur!'),
@@ -105,7 +103,8 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
               context: context,
               builder: (context) => AlertDialog(
                 title: const Text('Détail du défaut'),
-                content: const Text('Un problème a été détecté avec votre compteur. Veuillez contacter le support technique.'),
+                content: const Text(
+                    'Un problème a été détecté avec votre compteur. Veuillez contacter le support technique.'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context),
@@ -122,12 +121,12 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
 
   Future<void> _resetMeter() async {
     if (!widget.isOwner) return;
-    
+
     try {
       await _meterRef.child(widget.meterId).update({
         'hasError': false,
       });
-      
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -148,14 +147,14 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
 
   final MqttService _mqttService = MqttService();
   final NotificationService _notificationService = NotificationService();
-  
+
   Future<void> _toggleMeterPower() async {
     if (!widget.isOwner) return;
-    
+
     try {
       // Envoyer la commande via MQTT
       _mqttService.sendCommand(widget.meterId, 'power', !_isOn);
-      
+
       // Mettre à jour Firebase
       await _meterRef.child(widget.meterId).update({
         'isOn': !_isOn,
@@ -174,23 +173,44 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Scaffold(
       backgroundColor: isDarkMode ? Colors.black : Colors.grey[100],
       appBar: AppBar(
         title: const Text('Compteur Intelligent'),
-        backgroundColor: isDarkMode ? Colors.black : Colors.white,
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
         elevation: 0,
+        // Assurez-vous que cette ligne est présente
+        automaticallyImplyLeading: true,
+        // Vous pouvez aussi ajouter un leading explicite
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () {
-              // Navigation vers l'historique
-              // Navigator.push(context, MaterialPageRoute(
-              //   builder: (context) => MeterHistoryScreen(meterId: widget.meterId),
-              // ));
+              Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        MeterHistoryScreen(meterId: widget.meterId),
+                  ));
             },
             tooltip: 'Historique',
+          ),
+          // Remplacer ce bouton par un bouton de retour au tableau de bord
+          IconButton(
+            icon: const Icon(Icons.dashboard),
+            onPressed: () {
+              // Utiliser pop au lieu de pushReplacementNamed
+              Navigator.pop(context);
+            },
+            tooltip: widget.isOwner
+                ? 'Tableau de bord propriétaire'
+                : 'Mon tableau de bord',
           ),
           IconButton(
             icon: const Icon(Icons.info_outline),
@@ -199,7 +219,8 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
                 context: context,
                 builder: (context) => AlertDialog(
                   title: const Text('Informations'),
-                  content: const Text('Ce compteur intelligent vous permet de suivre votre consommation énergétique en temps réel.'),
+                  content: const Text(
+                      'Ce compteur intelligent vous permet de suivre votre consommation énergétique en temps réel.'),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
@@ -218,16 +239,46 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // En-tête avec information sur le type d'accès
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withAlpha(26),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.withAlpha(77)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.isOwner
+                          ? Icons.admin_panel_settings
+                          : Icons.person,
+                      color: Colors.green,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.isOwner
+                            ? 'Mode propriétaire - Accès complet'
+                            : 'Mode locataire - Consultation uniquement',
+                        style: const TextStyle(color: Colors.green),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
               // Contrôles du compteur
               _buildControlPanel(isDarkMode),
-              
+
               const SizedBox(height: 24),
-              
+
               // Jauges de mesure
               _buildMeterGauges(isDarkMode),
-              
+
               const SizedBox(height: 24),
-              
+
               // Bouton vers l'historique détaillé
               SizedBox(
                 width: double.infinity,
@@ -236,7 +287,8 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => MeterHistoryScreen(meterId: widget.meterId),
+                        builder: (context) =>
+                            MeterHistoryScreen(meterId: widget.meterId),
                       ),
                     );
                   },
@@ -266,9 +318,9 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withAlpha(13),
+            blurRadius: 5,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -285,17 +337,16 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
               ),
               Switch(
                 value: _isOn,
-                onChanged: widget.isOwner 
-                    ? (value) => _toggleMeterPower() 
-                    : null,
+                onChanged:
+                    widget.isOwner ? (value) => _toggleMeterPower() : null,
                 activeColor: Colors.green,
-                activeTrackColor: Colors.green.withOpacity(0.5),
+                activeTrackColor: Colors.green.withAlpha(128),
                 inactiveThumbColor: Colors.grey,
-                inactiveTrackColor: Colors.grey.withOpacity(0.5),
+                inactiveTrackColor: Colors.grey.withAlpha(128),
               ),
             ],
           ),
-          
+
           // Reset Button
           Column(
             children: [
@@ -309,13 +360,13 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
                   shape: const CircleBorder(),
                   padding: const EdgeInsets.all(12),
                   backgroundColor: Colors.green,
-                  disabledBackgroundColor: Colors.grey.withOpacity(0.3),
+                  disabledBackgroundColor: Colors.grey.withAlpha(77),
                 ),
                 child: const Text('Arr', style: TextStyle(color: Colors.white)),
               ),
             ],
           ),
-          
+
           // Défaut indicator
           Column(
             children: [
@@ -333,7 +384,7 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
               ),
             ],
           ),
-          
+
           // État indicator
           Column(
             children: [
@@ -359,7 +410,7 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
   Widget _buildMeterGauges(bool isDarkMode) {
     final textColor = isDarkMode ? Colors.white : Colors.black;
     final cardColor = isDarkMode ? Colors.grey[900] : Colors.white;
-    
+
     return Column(
       children: [
         // Première ligne: Fréquence et Facteur de puissance
@@ -393,9 +444,9 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
             ),
           ],
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Deuxième ligne: Intensité et Puissance
         Row(
           children: [
@@ -427,9 +478,9 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
             ),
           ],
         ),
-        
+
         const SizedBox(height: 16),
-        
+
         // Troisième ligne: Énergie et Tension
         Row(
           children: [
@@ -478,7 +529,7 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
   ) {
     // Limiter le pourcentage entre 0 et 1
     percent = percent.clamp(0.0, 1.0);
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
@@ -486,7 +537,7 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withAlpha(13),
             blurRadius: 5,
             offset: const Offset(0, 2),
           ),

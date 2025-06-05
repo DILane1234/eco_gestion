@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:eco_gestion/services/firebase_service.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:eco_gestion/config/routes.dart'; // Ajout de l'import pour AppRoutes
 
 class LoginScreen extends StatefulWidget {
@@ -27,54 +26,70 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Méthode de connexion
-void _signIn() async {
-  if (_formKey.currentState!.validate()) {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _signIn() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
 
-    try {
-      await _firebaseService.signInWithEmailAndPassword(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
+      try {
+        // Vérifier l'état de l'authentification avant la connexion
+        final preAuthState = await _firebaseService.checkAuthState();
+        print('État avant connexion: ${preAuthState['isAuthenticated']}');
 
-      // Ne pas appeler context tant qu'on n'a pas vérifié mounted
-      final String? userType = await _firebaseService.getUserType();
-
-      if (!mounted) return;
-
-      if (userType == 'owner') {
-        Navigator.pushReplacementNamed(context, AppRoutes.ownerDashboard);
-      } else if (userType == 'tenant') {
-        Navigator.pushReplacementNamed(context, AppRoutes.tenantDashboard);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Type d\'utilisateur non défini')),
+        // Tentative de connexion
+        final user = await _firebaseService.signInWithEmailAndPassword(
+          _emailController.text,
+          _passwordController.text,
         );
-      }
-    } on FirebaseAuthException {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = 'Impossible de se connecter. Vérifiez vos identifiants.';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _errorMessage = 'Impossible de se connecter. Vérifiez vos identifiants.';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+
+        if (user != null) {
+          // Vérifier l'état après la connexion
+          final postAuthState = await _firebaseService.checkAuthState();
+          print('État après connexion: ${postAuthState['isAuthenticated']}');
+
+          if (postAuthState['isAuthenticated'] == true) {
+            // Initialiser les données de consommation
+            await _firebaseService.initializeConsumptionData();
+
+            if (mounted) {
+              final userType = postAuthState['userType'] as String?;
+              if (userType == 'owner') {
+                Navigator.pushReplacementNamed(
+                    context, AppRoutes.ownerDashboard);
+              } else if (userType == 'tenant') {
+                Navigator.pushReplacementNamed(
+                    context, AppRoutes.tenantDashboard);
+              } else {
+                throw Exception('Type d\'utilisateur non valide');
+              }
+            }
+          } else {
+            throw Exception('Échec de l\'authentification après connexion');
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = e.toString();
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_errorMessage ?? 'Erreur de connexion'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
       }
     }
   }
-}
-  // Suppression de la méthode _getMessageFromErrorCode qui n'est pas utilisée
 
   @override
   Widget build(BuildContext context) {
@@ -191,8 +206,6 @@ void _signIn() async {
                   ),
                   const SizedBox(height: 8),
 
-                  // Dans la méthode build, remplacez les lignes suivantes :
-                  
                   // Lien mot de passe oublié
                   Align(
                     alignment: Alignment.centerRight,
@@ -204,7 +217,7 @@ void _signIn() async {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  
+
                   // Bouton de connexion
                   ElevatedButton(
                     onPressed: _isLoading ? null : _signIn,
@@ -230,7 +243,7 @@ void _signIn() async {
                             style: TextStyle(fontSize: 16),
                           ),
                   ),
-                  
+
                   // Lien vers l'inscription
                   const SizedBox(height: 16),
                   Row(

@@ -76,4 +76,11 @@ class ThemeProvider with ChangeNotifier {
       ),
     );
   }
+
+  // Ajouter ce getter après les getters lightTheme et darkTheme
+  
+  // Thème actuel basé sur le mode
+  ThemeData get currentTheme {
+    return _isDarkMode ? darkTheme : lightTheme;
+  }
 }
