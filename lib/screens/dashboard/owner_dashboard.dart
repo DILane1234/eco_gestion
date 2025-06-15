@@ -8,6 +8,8 @@ import 'package:eco_gestion/config/routes.dart';
 import 'package:eco_gestion/widgets/consumption_chart.dart';
 import 'package:eco_gestion/services/meter_simulator_service.dart';
 import 'package:eco_gestion/widgets/meter_display.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:eco_gestion/widgets/smart_meter_card.dart';
 
 class OwnerDashboard extends StatefulWidget {
   const OwnerDashboard({super.key});
@@ -30,6 +32,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     super.initState();
     // Démarrer la simulation
     _simulatorService.startSimulation(SIMULATED_METER_ID);
+    // Charger les données
+    _loadData();
   }
 
   @override
@@ -45,31 +49,44 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     });
   }
 
-  // Déplacez la méthode _loadData() à l'intérieur de la classe
   Future<void> _loadData() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // Rechargez vos données ici
-      // Par exemple :
-      // await _firebaseService.getProperties();
-      // await _firebaseService.getNotifications();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors de l\'actualisation: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
+      // Initialiser les données de consommation si nécessaire
+      await _firebaseService.initializeConsumptionData();
+
+      // Vérifier l'état de l'authentification
+      final authState = await _firebaseService.checkAuthState();
+      if (!authState['isAuthenticated']) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
         });
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+        return;
       }
+
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Erreur lors du chargement des données: $e');
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur de chargement: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -189,149 +206,143 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   }
 
   Widget _buildBody() {
-    switch (_selectedIndex) {
-      case 0:
-        return _buildHomeTab();
-      case 1:
-        return _buildPropertiesTab();
-      case 2:
-        return _buildTenantsTab();
-      case 3:
-        return _buildStatsTab();
-      default:
-        return _buildHomeTab();
-    }
-  }
-
-  Widget _buildHomeTab() {
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Tableau de bord',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Ajouter le widget d'affichage du compteur
-            MeterDisplay(meterId: SIMULATED_METER_ID),
-
-            const SizedBox(height: 16),
-
-            Card(
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Consommation totale',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      '1250 kWh',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text('Ce mois-ci'),
-                  ],
-                ),
-              ),
-            ),
-            SizedBox(height: 16),
-            Text(
-              'Alertes récentes',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(height: 8),
-            // Placeholder pour les alertes
-            Card(
-              color: Colors.amber,
-              child: Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Icon(Icons.warning),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text('Consommation anormale dans Appartement 3'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
         ),
+      );
+    }
+
+    return SafeArea(
+      child: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          _buildHomeTab(),
+          _buildPropertiesTab(),
+          _buildTenantsTab(),
+          _buildStatsTab(),
+        ],
       ),
     );
   }
 
-  Widget _buildPropertiesTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(16.0),
-      itemCount:
-          3, // Nombre de propriétés (à remplacer par des données réelles)
-      itemBuilder: (context, index) {
-        return Card(
-          margin: const EdgeInsets.only(bottom: 16.0),
-          elevation: 2,
-          child: ListTile(
-            contentPadding: const EdgeInsets.all(16.0),
-            leading: CircleAvatar(
-              backgroundColor: Colors.green.shade100,
-              child: Icon(Icons.home_work, color: Colors.green.shade700),
-            ),
-            title: Text(
-              'Propriété ${index + 1}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            subtitle: Column(
+  Widget _buildHomeTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Text(
+          'Tableau de bord',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 16),
+        MeterDisplay(meterId: SIMULATED_METER_ID),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 8),
-                Text('Adresse: 123 Rue de l\'Exemple, Ville ${index + 1}'),
-                const SizedBox(height: 4),
-                Text('Nombre d\'unités: ${(index + 1) * 2}'),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.electric_meter,
-                      size: 16,
-                      color: Colors.blue.shade700,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Consommation: ${(index + 1) * 500} kWh',
-                      style: TextStyle(
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Consommation totale',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 8),
+                Text(
+                  '1250 kWh',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Ce mois-ci',
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
-            trailing: IconButton(
-              icon: const Icon(Icons.arrow_forward_ios),
-              onPressed: () {
-                // Navigation vers les détails de la propriété
-                // TODO: Implémenter la navigation
-              },
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Alertes récentes',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          color: Colors.amber,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(Icons.warning),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Consommation anormale dans Appartement 3',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPropertiesTab() {
+    return StreamBuilder<DatabaseEvent>(
+      stream: FirebaseDatabase.instance.ref('compteurs').onValue,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+                'Erreur de chargement des données des compteurs intelligents'),
+          );
+        }
+
+        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final data =
+            Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
+        final meters = data.entries.map((entry) {
+          return SmartMeterCard(
+            meterId: entry.key,
+            isOwner: true,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => SmartMeterDetail(
+                    meterId: entry.key,
+                    isOwner: true,
+                  ),
+                ),
+              );
+            },
+          );
+        }).toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Mes Compteurs Intelligents',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            ...meters,
+          ],
         );
       },
     );
@@ -339,12 +350,11 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 
   Widget _buildTenantsTab() {
     return ListView.builder(
-      padding: const EdgeInsets.all(16.0),
-      itemCount:
-          5, // Nombre de locataires (à remplacer par des données réelles)
+      padding: const EdgeInsets.all(16),
+      itemCount: 5,
       itemBuilder: (context, index) {
         return Card(
-          margin: const EdgeInsets.only(bottom: 12.0),
+          margin: const EdgeInsets.only(bottom: 12),
           child: ListTile(
             leading: CircleAvatar(
               backgroundColor: Colors.amber.shade100,
@@ -356,10 +366,16 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 ),
               ),
             ),
-            title: Text('Locataire ${index + 1}'),
-            subtitle: Text('Appartement ${index + 1}'),
+            title: Text(
+              'Locataire ${index + 1}',
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              'Appartement ${index + 1}',
+              overflow: TextOverflow.ellipsis,
+            ),
             trailing: SizedBox(
-              width: 96, // Fixed width to accommodate two icons
+              width: 96,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -400,159 +416,348 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 
         final stats = statsSnapshot.data ?? {};
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Statistiques de consommation',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Text(
+              'Statistiques de consommation',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 24),
+            FutureBuilder<List<double>>(
+              future: _firebaseService.getMonthlyData(true),
+              builder: (context, monthlySnapshot) {
+                if (monthlySnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-              FutureBuilder<List<double>>(
-                future: _firebaseService.getMonthlyData(true),
-                builder: (context, monthlySnapshot) {
-                  if (monthlySnapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+                if (monthlySnapshot.hasError) {
+                  return Center(
+                      child: Text('Erreur: ${monthlySnapshot.error}'));
+                }
 
-                  if (monthlySnapshot.hasError) {
-                    return Center(
-                        child: Text('Erreur: ${monthlySnapshot.error}'));
-                  }
+                final monthlyData = monthlySnapshot.data ?? [];
 
-                  final monthlyData = monthlySnapshot.data ?? [];
-
-                  return SizedBox(
-                    width: double.infinity,
-                    height: 300,
-                    child: ConsumptionChart(
-                      monthlyData: monthlyData,
-                      title: 'Consommation mensuelle',
-                      barColor: Colors.green,
-                    ),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 24),
-
-              // Affichage des statistiques
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Moyenne',
-                      '${stats['average']} kWh',
-                      Icons.show_chart,
-                      Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Maximum',
-                      '${stats['maximum']} kWh',
-                      Icons.arrow_upward,
-                      Colors.red,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildStatCard(
-                      'Minimum',
-                      '${stats['minimum']} kWh',
-                      Icons.arrow_downward,
-                      Colors.green,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildStatCard(
-                      'Total annuel',
-                      '${stats['annual_total']} kWh',
-                      Icons.calendar_today,
-                      Colors.purple,
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // Bouton du compteur intelligent
-              SizedBox(
-                width: double.infinity,
-                child: Card(
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => SmartMeterDetail(
-                            meterId: 'compteur1',
-                            isOwner: true,
+                return SizedBox(
+                  width: double.infinity,
+                  height: 300,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: ClipRect(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 8),
+                        child: Container(
+                          height: 320,
+                          clipBehavior: Clip.hardEdge,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: ConsumptionChart(
+                            monthlyData: monthlyData,
+                            title: 'Consommation mensuelle',
+                            barColor: Colors.green,
                           ),
                         ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Moyenne',
+                    '${stats['average']} kWh',
+                    Icons.show_chart,
+                    Colors.blue,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildStatCard(
+                    'Maximum',
+                    '${stats['maximum']} kWh',
+                    Icons.arrow_upward,
+                    Colors.red,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildStatCard(
+                    'Minimum',
+                    '${stats['minimum']} kWh',
+                    Icons.arrow_downward,
+                    Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: _buildStatCard(
+                    'Total annuel',
+                    '${stats['annual_total']} kWh',
+                    Icons.calendar_today,
+                    Colors.purple,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            FutureBuilder<Map<String, dynamic>>(
+              future: _firebaseService.getConsumptionData(true),
+              builder: (context, consumptionSnapshot) {
+                if (consumptionSnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                if (consumptionSnapshot.hasError) {
+                  return Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.electric_meter,
-                              color: Colors.green.shade700,
-                            ),
-                          ),
+                          Icon(Icons.error_outline, color: Colors.red.shade700),
                           const SizedBox(width: 16),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Compteur Intelligent',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Consulter les données en temps réel',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
+                          Expanded(
+                            child: Text(
+                              'Erreur de chargement des données des compteurs intelligents',
+                              style: TextStyle(color: Colors.red.shade700),
                             ),
                           ),
-                          const Icon(Icons.arrow_forward_ios, size: 16),
                         ],
                       ),
                     ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+                  );
+                }
+
+                final consumptionData = consumptionSnapshot.data ?? {};
+                final smartMeters = consumptionData['compteurs'] as Map? ?? {};
+
+                if (smartMeters.isEmpty) {
+                  return Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue.shade700),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Text(
+                              'Aucun compteur intelligent disponible',
+                              style: TextStyle(color: Colors.blue.shade700),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: smartMeters.length,
+                  itemBuilder: (context, index) {
+                    final meterId = smartMeters.keys.elementAt(index);
+                    final meterData = smartMeters[meterId] as Map? ?? {};
+
+                    return Card(
+                      elevation: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      child: InkWell(
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => SmartMeterDetail(
+                                meterId: meterId,
+                                isOwner: true,
+                              ),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.shade100,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.electric_meter,
+                                      color: Colors.green.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Compteur $meterId',
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        SizedBox(height: 4),
+                                        Text(
+                                          'Consulter les données en temps réel',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.grey,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward_ios, size: 16),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.power,
+                                          color: Colors.green.shade700,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Puissance actuelle',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '${((meterData['current_power'] ?? 0) / 1000).toStringAsFixed(1)} kW',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.green.shade700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: (meterData['is_active'] ??
+                                                    false)
+                                                ? Colors.green.shade50
+                                                : Colors.red.shade50,
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: (meterData['is_active'] ??
+                                                      false)
+                                                  ? Colors.green.shade200
+                                                  : Colors.red.shade200,
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                Icons.circle,
+                                                color:
+                                                    (meterData['is_active'] ??
+                                                            false)
+                                                        ? Colors.green.shade500
+                                                        : Colors.red.shade500,
+                                                size: 8,
+                                              ),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                (meterData['is_active'] ??
+                                                        false)
+                                                    ? 'En ligne'
+                                                    : 'Hors ligne',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color:
+                                                      (meterData['is_active'] ??
+                                                              false)
+                                                          ? Colors
+                                                              .green.shade700
+                                                          : Colors.red.shade700,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (meterData['last_reading'] != null) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Dernière lecture: ${DateTime.fromMillisecondsSinceEpoch(meterData['last_reading']['timestamp'] ?? 0).toString().substring(0, 16)}',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ],
         );
       },
     );
@@ -569,11 +774,11 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(12.0),
           child: Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.green.shade100,
                   shape: BoxShape.circle,
@@ -581,26 +786,35 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 child: Icon(
                   icon,
                   color: Colors.green.shade700,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
-                        fontSize: 16,
+                      style: const TextStyle(
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                       ),
+                      maxLines: 2,
+                      softWrap: true,
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      value,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
+                    const SizedBox(height: 4),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
@@ -613,5 +827,3 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     );
   }
 }
-
-// Supprimez la méthode _loadData() qui est définie ici à l'extérieur de la classe

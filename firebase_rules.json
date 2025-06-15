@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "public_data": {
+      ".read": true,
+      ".write": false
+    },
+    "test": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "compteurs": {
+      "$meterId": {
+        ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('meterId').val() === $meterId)",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'owner'"
+      }
+    },
+    ".read": false,
+    ".write": false
+  }
+} 

@@ -3,12 +3,12 @@ import 'package:firebase_database/firebase_database.dart';
 
 class SmartMeterService {
   final DatabaseReference _database = FirebaseDatabase.instance.ref();
-  
+
   // Récupérer les données actuelles du compteur
   Future<Map<String, dynamic>> getMeterData(String meterId) async {
     try {
       final snapshot = await _database.child('compteurs/$meterId').get();
-      
+
       if (snapshot.exists) {
         return Map<String, dynamic>.from(snapshot.value as Map);
       } else {
@@ -19,7 +19,7 @@ class SmartMeterService {
       return {};
     }
   }
-  
+
   // Écouter les mises à jour en temps réel
   Stream<Map<String, dynamic>> getMeterDataStream(String meterId) {
     return _database.child('compteurs/$meterId').onValue.map((event) {
@@ -30,7 +30,7 @@ class SmartMeterService {
       }
     });
   }
-  
+
   // Allumer ou éteindre le compteur
   Future<void> setMeterPower(String meterId, bool isOn) async {
     try {
@@ -40,7 +40,7 @@ class SmartMeterService {
       rethrow;
     }
   }
-  
+
   // Réinitialiser le compteur
   Future<void> resetMeter(String meterId) async {
     try {

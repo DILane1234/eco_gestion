@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:flutter/material.dart';
 
 enum UserRole {
   owner,
@@ -9,6 +11,7 @@ enum UserRole {
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseDatabase _database = FirebaseDatabase.instance;
 
   // Obtenir l'utilisateur actuel
   User? get currentUser => _auth.currentUser;
@@ -72,12 +75,12 @@ class AuthService {
     try {
       final doc = await _firestore.collection('users').doc(uid).get();
       final data = doc.data();
-      
+
       if (data != null && data.containsKey('role')) {
         final roleStr = data['role'] as String;
         return roleStr == 'owner' ? UserRole.owner : UserRole.tenant;
       }
-      
+
       // Par défaut, on considère l'utilisateur comme locataire
       return UserRole.tenant;
     } catch (e) {
@@ -89,5 +92,72 @@ class AuthService {
   // Réinitialisation du mot de passe
   Future<void> resetPassword(String email) async {
     await _auth.sendPasswordResetEmail(email: email);
+  }
+
+  // Vérifier si l'utilisateur est connecté
+  bool get isAuthenticated => _auth.currentUser != null;
+
+  // Récupérer les données de l'utilisateur
+  Future<Map<String, dynamic>> getUserData() async {
+    final user = _auth.currentUser;
+    if (user == null) return {};
+
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      if (doc.exists) {
+        return doc.data() ?? {};
+      }
+      return {};
+    } catch (e) {
+      print('Erreur lors de la récupération des données utilisateur: $e');
+      return {};
+    }
+  }
+
+  // Vérifier les permissions d'accès au compteur
+  Future<bool> canAccessMeter(String meterId) async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
+
+    try {
+      final userData = await getUserData();
+      final role = userData['role'];
+      final userMeterId = userData['meterId'];
+
+      // Si l'utilisateur est propriétaire, il a accès à tous les compteurs
+      if (role == 'owner') return true;
+
+      // Si l'utilisateur est locataire, il n'a accès qu'à son propre compteur
+      if (role == 'tenant' && userMeterId == meterId) return true;
+
+      return false;
+    } catch (e) {
+      print('Erreur lors de la vérification des permissions: $e');
+      return false;
+    }
+  }
+
+  // Récupérer le type d'utilisateur (propriétaire ou locataire)
+  Future<String?> getCurrentUserRole() async {
+    final userData = await getUserData();
+    return userData['role'];
+  }
+
+  // Récupérer l'ID du compteur de l'utilisateur
+  Future<String?> getUserMeterId() async {
+    final userData = await getUserData();
+    return userData['meterId'];
+  }
+
+  // Assigner un compteur à un locataire
+  Future<void> assignMeterToTenant(String tenantUid, String meterId) async {
+    try {
+      await _firestore.collection('users').doc(tenantUid).update({
+        'meterId': meterId,
+      });
+    } catch (e) {
+      print('Erreur lors de l\'assignation du compteur: $e');
+      rethrow;
+    }
   }
 }

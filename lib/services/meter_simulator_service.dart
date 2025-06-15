@@ -57,7 +57,16 @@ class MeterSimulatorService {
     }
 
     // Mettre à jour dans Firebase
-    FirebaseDatabase.instance.ref('compteurs').child(meterId).update(data);
+    _updateFirebase(meterId, data);
+  }
+
+  Future<void> _updateFirebase(
+      String meterId, Map<String, dynamic> data) async {
+    // Mettre à jour dans Firebase
+    await FirebaseDatabase.instance
+        .ref('compteurs')
+        .child(meterId)
+        .update(data);
   }
 
   // Simuler une accumulation d'énergie réaliste

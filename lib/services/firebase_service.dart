@@ -73,53 +73,65 @@ class FirebaseService {
   }
 
   // Connexion avec email et mot de passe
-  Future<User?> signInWithEmailAndPassword(
+  Future<Map<String, dynamic>> signInWithEmailAndPassword(
       String email, String password) async {
     try {
       print('Tentative de connexion pour: $email');
 
-      final UserCredential userCredential =
-          await _auth.signInWithEmailAndPassword(
+      // 1. Tentative de connexion avec Firebase Auth
+      final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      final User? user = userCredential.user;
-      if (user != null) {
-        // Vérifier les données utilisateur
-        final authState = await checkAuthState();
-
-        if (authState['hasFirestoreData'] == true) {
-          print('Connexion réussie avec données utilisateur complètes');
-          return user;
-        } else {
-          print('Connexion réussie mais données utilisateur manquantes');
-          throw Exception('Données utilisateur incomplètes');
-        }
+      if (userCredential.user == null) {
+        throw Exception("Erreur d'authentification : utilisateur non trouvé");
       }
 
-      return null;
+      // 2. Vérifier si l'utilisateur existe dans Firestore
+      final userDoc = await _firestore
+          .collection('users')
+          .doc(userCredential.user!.uid)
+          .get();
+
+      if (!userDoc.exists || userDoc.data() == null) {
+        throw Exception(
+            'Compte utilisateur incomplet. Veuillez contacter le support.');
+      }
+
+      final userData = userDoc.data()!;
+      final userType = userData['userType'] as String?;
+
+      if (userType != 'owner' && userType != 'tenant') {
+        throw Exception('Type d\'utilisateur non valide');
+      }
+
+      print('Connexion réussie pour: $email (${userType})');
+
+      return {
+        'user': userCredential.user,
+        'userType': userType,
+        'userData': userData,
+      };
     } on FirebaseAuthException catch (e) {
-      print('Erreur FirebaseAuth: ${e.code}');
+      print('Erreur FirebaseAuth: ${e.code} - ${e.message}');
       switch (e.code) {
         case 'user-not-found':
           throw Exception('Aucun compte ne correspond à cet e-mail.');
         case 'wrong-password':
-          throw Exception('Mot de passe incorrect. Veuillez réessayer.');
+          throw Exception('Mot de passe incorrect.');
         case 'invalid-email':
           throw Exception('Format d\'e-mail invalide.');
         case 'user-disabled':
-          throw Exception(
-              'Ce compte a été désactivé. Veuillez contacter le support.');
+          throw Exception('Ce compte a été désactivé.');
         case 'too-many-requests':
-          throw Exception(
-              'Trop de tentatives de connexion. Veuillez réessayer plus tard.');
+          throw Exception('Trop de tentatives. Réessayez plus tard.');
         default:
-          throw Exception('Erreur de connexion: ${e.message}');
+          throw Exception(e.message ?? 'Erreur de connexion inconnue.');
       }
     } catch (e) {
-      print('Erreur inattendue: $e');
-      throw Exception('Une erreur s\'est produite. Veuillez réessayer.');
+      print('Erreur de connexion: $e');
+      throw Exception('Erreur de connexion. Veuillez réessayer.');
     }
   }
 
@@ -425,12 +437,18 @@ class FirebaseService {
               'annual_total': 2320
             },
             'smart_meter': {
-              'compteur1': {
-                'current_power': 1200,
+              'compteur_simule_1': {
+                'current_power': 2248.51,
                 'is_active': true,
                 'last_reading': {
                   'timestamp': DateTime.now().millisecondsSinceEpoch,
-                  'value': 1200
+                  'value': 2248.51,
+                  'voltage': 237.29,
+                  'current': 9.19,
+                  'power': 2248.51,
+                  'energy': 8.50,
+                  'powerFactor': 0.97,
+                  'frequency': 49.85
                 }
               }
             }
@@ -515,7 +533,7 @@ class FirebaseService {
   Future<Map<String, dynamic>> getSmartMeterData(
       String meterId, bool isOwner) async {
     final data = await getConsumptionData(isOwner);
-    final meterData = (data['smart_meter'] as Map?)?[meterId] as Map?;
+    final meterData = (data['compteurs'] as Map?)?[meterId] as Map?;
 
     if (meterData != null) {
       return Map<String, dynamic>.from(meterData);
@@ -582,7 +600,7 @@ class FirebaseService {
       {String? name, String? roomId}) async {
     try {
       final DatabaseReference meterRef =
-          FirebaseDatabase.instance.ref('compteurs').child(meterId);
+          FirebaseDatabase.instance.ref('compteurs/$meterId');
 
       // Structure complète d'un compteur avec des valeurs par défaut
       final meterData = {
@@ -622,17 +640,90 @@ class FirebaseService {
 
   // Méthode pour récupérer les données complètes d'un compteur
   Future<Map<String, dynamic>> getMeterData(String meterId) async {
-    try {
-      final snapshot =
-          await FirebaseDatabase.instance.ref('compteurs').child(meterId).get();
+    final snapshot =
+        await FirebaseDatabase.instance.ref('compteurs/$meterId').get();
+    return snapshot.value as Map<String, dynamic>;
+  }
 
-      if (snapshot.exists) {
-        return Map<String, dynamic>.from(snapshot.value as Map);
+  // Méthode de débogage pour l'authentification
+  Future<void> debugAuthentication() async {
+    try {
+      print('\n=== DÉBOGAGE AUTHENTIFICATION ===');
+
+      // 1. Vérifier l'état de la connexion Firebase
+      print('1. Connexion Firebase:');
+      final isConnected = await testDatabaseConnection();
+      print('   - Connexion établie: $isConnected');
+
+      // 2. Vérifier l'utilisateur actuel
+      print('2. Utilisateur actuel:');
+      final user = _auth.currentUser;
+      print('   - Utilisateur connecté: ${user != null}');
+      if (user != null) {
+        print('   - UID: ${user.uid}');
+        print('   - Email: ${user.email}');
+        print('   - Email vérifié: ${user.emailVerified}');
+
+        // 3. Vérifier les données Firestore
+        print('3. Données Firestore:');
+        try {
+          final userDoc =
+              await _firestore.collection('users').doc(user.uid).get();
+          print('   - Document existe: ${userDoc.exists}');
+          if (userDoc.exists) {
+            final userData = userDoc.data();
+            print('   - Type d\'utilisateur: ${userData?['userType']}');
+            print('   - Nom: ${userData?['name']}');
+          }
+        } catch (e) {
+          print('   - Erreur Firestore: $e');
+        }
+
+        // 4. Vérifier les données Realtime Database
+        print('4. Données Realtime Database:');
+        try {
+          final dbRef = _database.child('users').child(user.uid);
+          final dbSnapshot = await dbRef.get();
+          print('   - Données existent: ${dbSnapshot.exists}');
+          if (dbSnapshot.exists) {
+            print('   - Valeur: ${dbSnapshot.value}');
+          }
+        } catch (e) {
+          print('   - Erreur Database: $e');
+        }
       }
-      return {};
+
+      print('=== FIN DÉBOGAGE ===\n');
     } catch (e) {
-      print('Erreur lors de la récupération des données du compteur: $e');
-      return {};
+      print('Erreur lors du débogage: $e');
     }
+  }
+
+  // Méthode pour réinitialiser complètement l'authentification
+  Future<void> resetAuthentication() async {
+    try {
+      print('Réinitialisation de l\'authentification...');
+
+      // 1. Déconnexion de l'utilisateur actuel
+      await signOut();
+
+      // 2. Effacer les caches locaux
+      await _auth.signOut();
+
+      // 3. Vérifier l'état après réinitialisation
+      final user = _auth.currentUser;
+      print(
+          'État après réinitialisation: ${user == null ? "Déconnecté" : "Toujours connecté"}');
+
+      print('Réinitialisation terminée');
+      return;
+    } catch (e) {
+      print('Erreur lors de la réinitialisation: $e');
+      rethrow;
+    }
+  }
+
+  DatabaseReference getMeterRef(String meterId) {
+    return FirebaseDatabase.instance.ref('compteurs/$meterId');
   }
 }

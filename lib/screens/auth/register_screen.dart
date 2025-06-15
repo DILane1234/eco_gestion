@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:eco_gestion/services/firebase_service.dart';
 import 'package:eco_gestion/config/routes.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -44,6 +45,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       });
 
       try {
+        // Afficher des informations de débogage
+        await _firebaseService.debugAuthentication();
+
         final email = _emailController.text.trim();
         final password = _passwordController.text;
         final name = _nameController.text.trim();
@@ -54,25 +58,42 @@ class _RegisterScreenState extends State<RegisterScreen> {
         print("Nom: $name");
         print("Type d'utilisateur: $userType");
 
-        await _firebaseService.signUpWithEmailAndPassword(
+        // Inscription
+        final userCredential =
+            await _firebaseService.signUpWithEmailAndPassword(
           email: email,
           password: password,
           name: name,
           userType: userType,
         );
 
-        // Petite pause pour attendre l'enregistrement Firestore
-        await Future.delayed(const Duration(milliseconds: 500));
+        print("Inscription réussie. UID: ${userCredential.user?.uid}");
+
+        // Vérification de l'authentification
+        await _firebaseService.debugAuthentication();
 
         // Vérification du rôle stocké
-        String? confirmedUserType = await _firebaseService.getUserType();
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userCredential.user?.uid ?? '')
+            .get();
+
+        final confirmedUserType = userDoc.data()?['userType'] as String?;
+        print("Type d'utilisateur confirmé: $confirmedUserType");
+
+        if (!mounted) return;
 
         if (confirmedUserType == 'owner') {
+          print("Redirection vers le dashboard propriétaire");
           Navigator.pushReplacementNamed(context, AppRoutes.ownerDashboard);
-        } else {
+        } else if (confirmedUserType == 'tenant') {
+          print("Redirection vers le dashboard locataire");
           Navigator.pushReplacementNamed(context, AppRoutes.tenantDashboard);
+        } else {
+          throw Exception("Type d'utilisateur non reconnu: $confirmedUserType");
         }
       } on FirebaseAuthException catch (e) {
+        print("Erreur FirebaseAuth: ${e.code} - ${e.message}");
         setState(() {
           switch (e.code) {
             case 'email-already-in-use':
@@ -89,8 +110,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           }
         });
       } catch (e) {
+        print("Erreur d'inscription: $e");
         setState(() {
-          _errorMessage = 'Erreur inconnue. Veuillez réessayer.';
+          _errorMessage =
+              'Erreur: ${e.toString().replaceAll('Exception: ', '')}';
         });
       } finally {
         if (mounted) {

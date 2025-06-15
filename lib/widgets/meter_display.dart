@@ -31,11 +31,13 @@ class MeterDisplay extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   data['name'] ?? 'Compteur $meterId',
                   style: Theme.of(context).textTheme.titleLarge,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 16),
                 _buildDataGrid(data),
@@ -55,8 +57,8 @@ class MeterDisplay extends StatelessWidget {
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
-      childAspectRatio: 2.5,
-      mainAxisSpacing: 8,
+      childAspectRatio: 2.0,
+      mainAxisSpacing: 12,
       crossAxisSpacing: 8,
       physics: const NeverScrollableScrollPhysics(),
       children: [
@@ -102,22 +104,33 @@ class MeterDisplay extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 16),
+              Icon(icon, size: 18),
               const SizedBox(width: 4),
-              Text(label, style: const TextStyle(fontSize: 12)),
+              Flexible(
+                child: Text(
+                  label,
+                  style: const TextStyle(fontSize: 13),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -133,21 +146,29 @@ class MeterDisplay extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        _buildStatusChip(
-          'En ligne',
-          isOnline,
-          Colors.green,
+        Expanded(
+          child: _buildStatusChip(
+            'En ligne',
+            isOnline,
+            Colors.green,
+          ),
         ),
-        _buildStatusChip(
-          'Actif',
-          isActive,
-          Colors.blue,
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildStatusChip(
+            'Actif',
+            isActive,
+            Colors.blue,
+          ),
         ),
-        _buildStatusChip(
-          'Erreur',
-          hasError,
-          Colors.red,
-          inverted: true,
+        const SizedBox(width: 8),
+        Expanded(
+          child: _buildStatusChip(
+            'Erreur',
+            hasError,
+            Colors.red,
+            inverted: true,
+          ),
         ),
       ],
     );
@@ -167,8 +188,10 @@ class MeterDisplay extends StatelessWidget {
           color: isActive ? Colors.white : Colors.grey.shade800,
           fontSize: 12,
         ),
+        overflow: TextOverflow.ellipsis,
       ),
       backgroundColor: isActive ? color : Colors.grey.shade200,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
     );
   }
 }

@@ -31,20 +31,21 @@ class ConsumptionChart extends StatelessWidget {
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(12.0),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               title,
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
               ),
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
+            const SizedBox(height: 8),
+            Expanded(
               child: BarChart(
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
@@ -52,11 +53,11 @@ class ConsumptionChart extends StatelessWidget {
                   barTouchData: BarTouchData(
                     enabled: true,
                     touchTooltipData: BarTouchTooltipData(
-                      getTooltipColor: (group) => Colors.blueGrey.shade800,
+                      tooltipBgColor: Colors.blueGrey.shade800,
                       getTooltipItem: (group, groupIndex, rod, rodIndex) {
                         String month = _getMonth(groupIndex);
                         return BarTooltipItem(
-                          '$month\n\${rod.toY.round()} kWh',
+                          '$month\n${rod.toY.round()} kWh',
                           const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -72,7 +73,7 @@ class ConsumptionChart extends StatelessWidget {
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
                           return SideTitleWidget(
-                            meta: meta,
+                            axisSide: meta.axisSide,
                             child: Text(
                               _getMonth(value.toInt()).substring(0, 3),
                               style: const TextStyle(
@@ -83,7 +84,7 @@ class ConsumptionChart extends StatelessWidget {
                             ),
                           );
                         },
-                        reservedSize: 28,
+                        reservedSize: 24,
                       ),
                     ),
                     leftTitles: AxisTitles(
@@ -91,11 +92,17 @@ class ConsumptionChart extends StatelessWidget {
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
                           return SideTitleWidget(
-                            meta: meta,
-                            child: Text('...'),
+                            axisSide: meta.axisSide,
+                            child: Text(
+                              '${value.toInt()}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.black54,
+                              ),
+                            ),
                           );
                         },
-                        reservedSize: 40,
+                        reservedSize: 32,
                       ),
                     ),
                     topTitles: const AxisTitles(
@@ -117,10 +124,10 @@ class ConsumptionChart extends StatelessWidget {
                         BarChartRodData(
                           toY: value,
                           color: barColor,
-                          width: 16,
+                          width: 12,
                           borderRadius: const BorderRadius.only(
-                            topLeft: Radius.circular(6),
-                            topRight: Radius.circular(6),
+                            topLeft: Radius.circular(4),
+                            topRight: Radius.circular(4),
                           ),
                         ),
                       ],
@@ -129,14 +136,15 @@ class ConsumptionChart extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             const Center(
               child: Text(
                 'Consommation mensuelle (kWh)',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   color: Colors.grey,
                 ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
