@@ -25,6 +25,8 @@ class _TenantDashboardState extends State<TenantDashboard> {
   DateTime? _lastBackPressTime;
   bool _isExiting = false;
   Map<String, dynamic> _consumptionData = {};
+  Map<String, dynamic> _smartMeterData = {};
+  static const String SIMULATED_METER_ID = 'compteur_simule_1';
 
   @override
   void initState() {
@@ -37,7 +39,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await _authService.assignMeterToTenant(user.uid, 'compteur_simule_1');
+        await _authService.assignMeterToTenant(user.uid, SIMULATED_METER_ID);
         print('Compteur simulé assigné avec succès');
       }
     } catch (e) {
@@ -55,11 +57,16 @@ class _TenantDashboardState extends State<TenantDashboard> {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
+        print('Aucun utilisateur connecté');
         setState(() {
           _isLoading = false;
         });
         return {};
       }
+
+      // Attendre que le token soit rafraîchi
+      final token = await user.getIdToken(true);
+      print('Token rafraîchi pour l\'utilisateur: ${user.uid}');
 
       // Récupérer les données utilisateur depuis Firestore
       final userDoc = await FirebaseFirestore.instance
@@ -69,30 +76,92 @@ class _TenantDashboardState extends State<TenantDashboard> {
       final userData = userDoc.data() ?? {};
       print('Données utilisateur Firestore: $userData');
 
-      // Récupérer le meterId depuis les données utilisateur
-      final meterId = userData['meterId'] ?? 'compteur_simule_1';
-      print('MeterId trouvé: $meterId');
+      // Récupérer les données du compteur de consommation de l'utilisateur (mensuelle, statistiques)
+      final databaseRef = FirebaseDatabase.instance.ref();
+      final consumptionRef =
+          databaseRef.child('users/${user.uid}/consumption/tenant');
 
-      // Récupérer les données du compteur depuis la Realtime Database
-      final meterSnapshot =
-          await FirebaseDatabase.instance.ref('compteurs/$meterId').get();
-      final meterData = meterSnapshot.value as Map<dynamic, dynamic>? ?? {};
-      print('Données du compteur: $meterData');
+      try {
+        final consumptionSnapshot = await consumptionRef.get();
 
-      final data = {
-        'compteurs': {
-          meterId: meterData,
-        },
-      };
+        if (!consumptionSnapshot.exists) {
+          print(
+              'Aucune donnée de consommation trouvée pour l\'utilisateur, initialisation...');
+          await consumptionRef.set({
+            'monthly_consumption': {
+              'January': 120,
+              'February': 140,
+              'March': 160,
+              'April': 180,
+              'May': 200,
+              'June': 220,
+              'July': 250,
+              'August': 230,
+              'September': 210,
+              'October': 190,
+              'November': 170,
+              'December': 150
+            },
+            'statistics': {
+              'average': 195,
+              'maximum': 250,
+              'minimum': 120,
+              'annual_total': 2320
+            }
+          });
+        }
 
-      setState(() {
-        _consumptionData = data;
-        _isLoading = false;
-      });
+        // Récupérer les données de consommation mises à jour
+        final updatedConsumptionSnapshot = await consumptionRef.get();
+        final rawConsumptionData = updatedConsumptionSnapshot.value;
+        final Map<String, dynamic> loadedConsumptionData = {};
+        if (rawConsumptionData is Map) {
+          rawConsumptionData.forEach((key, value) {
+            if (key is String) {
+              loadedConsumptionData[key] = value;
+            }
+          });
+        }
 
-      return data;
+        // Récupérer les données du compteur intelligent depuis le chemin global
+        final smartMeterGlobalRef =
+            databaseRef.child('compteurs/${SIMULATED_METER_ID}');
+        final smartMeterSnapshot = await smartMeterGlobalRef.get();
+        final Map<String, dynamic> loadedSmartMeterData = {};
+        if (smartMeterSnapshot.exists && smartMeterSnapshot.value is Map) {
+          (smartMeterSnapshot.value as Map).forEach((key, value) {
+            if (key is String) {
+              loadedSmartMeterData[key] = value;
+            }
+          });
+        } else {
+          print(
+              'Aucune donnée trouvée pour le compteur intelligent global: ${SIMULATED_METER_ID}');
+          // Optionnel: Initialiser des données par défaut pour le compteur global si non présent
+          // Cela devrait être géré par MeterSimulatorService, mais peut être un fallback ici.
+          // await smartMeterGlobalRef.set({...});
+        }
+
+        setState(() {
+          _consumptionData =
+              loadedConsumptionData; // Données de consommation utilisateur
+          _smartMeterData =
+              loadedSmartMeterData; // Données du compteur intelligent global
+          _isLoading = false;
+        });
+
+        return loadedConsumptionData; // Retourne les données de consommation de l'utilisateur
+      } catch (e) {
+        print(
+            'Erreur lors de l\'accès à la base de données (TenantDashboard): $e');
+        setState(() {
+          _isLoading = false;
+        });
+        return {};
+      }
     } catch (e) {
-      print('Erreur lors du chargement des données: $e');
+      print(
+          'Erreur lors du chargement général des données (TenantDashboard): $e');
       setState(() {
         _isLoading = false;
       });
@@ -243,24 +312,19 @@ class _TenantDashboardState extends State<TenantDashboard> {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_consumptionData.isEmpty) {
+    if (_consumptionData.isEmpty && _smartMeterData.isEmpty) {
       return const Center(
         child: Text('Aucune donnée disponible'),
       );
     }
 
-    final compteurs = _consumptionData['compteurs'] as Map? ?? {};
-    final meterId = compteurs.keys.first;
-    final meterData = compteurs[meterId] as Map<dynamic, dynamic>? ?? {};
+    // Données de consommation utilisateur (depuis _consumptionData)
+    final monthlyConsumption = _consumptionData['statistics']?['average'] ?? 0;
+    final averageConsumption = monthlyConsumption / 30;
+    final estimatedCost = (monthlyConsumption * 30).round();
 
-    final todayConsumption = meterData['power'] != null
-        ? (meterData['power'] as num).toDouble()
-        : 0.0;
-    final monthlyConsumption = meterData['energy'] != null
-        ? (meterData['energy'] as num).toDouble()
-        : 0.0;
-    final averageConsumption = monthlyConsumption / 30; // Moyenne journalière
-    final estimatedCost = (monthlyConsumption * 30).round(); // 30 FCFA par kWh
+    // Données du compteur intelligent (depuis _smartMeterData)
+    final currentPower = _smartMeterData['current_power'] ?? 0;
 
     return SingleChildScrollView(
       child: Padding(
@@ -268,7 +332,6 @@ class _TenantDashboardState extends State<TenantDashboard> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // En-tête avec message personnalisé
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -293,7 +356,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Bonjour ${meterData['name'] ?? 'Utilisateur'} 👋',
+                    'Bonjour ${_consumptionData['name'] ?? 'Utilisateur'} 👋',
                     style: const TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -312,30 +375,26 @@ class _TenantDashboardState extends State<TenantDashboard> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // Cartes de consommation
             _buildConsumptionCard(
-              'Consommation du jour',
-              todayConsumption.toStringAsFixed(1),
+              'Puissance Actuelle',
+              currentPower.toString(),
               'W',
-              Icons.today,
+              Icons.electric_bolt,
               Colors.blue,
-              subtitle: 'Puissance actuelle',
-              chart: _buildDailyConsumptionChart(meterData),
+              subtitle: 'Puissance instantanée',
             ),
             const SizedBox(height: 16),
             _buildConsumptionCard(
-              'Consommation mensuelle',
+              'Consommation Mensuelle',
               monthlyConsumption.toStringAsFixed(1),
               'kWh',
               Icons.calendar_month,
               Colors.green,
-              subtitle: 'Énergie totale',
-              chart: _buildMonthlyConsumptionChart(meterData),
+              subtitle: 'Moyenne mensuelle',
             ),
             const SizedBox(height: 16),
             _buildConsumptionCard(
-              'Consommation moyenne',
+              'Consommation Moyenne',
               averageConsumption.toStringAsFixed(1),
               'kWh',
               Icons.analytics,
@@ -344,7 +403,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
             ),
             const SizedBox(height: 16),
             _buildConsumptionCard(
-              'Coût estimé',
+              'Coût Estimé',
               estimatedCost.toString(),
               'FCFA',
               Icons.attach_money,
@@ -457,7 +516,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
     );
   }
 
-  Widget _buildDailyConsumptionChart(Map<dynamic, dynamic> meterData) {
+  Widget _buildDailyConsumptionChart(Map<dynamic, dynamic> smartMeterData) {
     return Container(
       height: 200,
       padding: const EdgeInsets.all(16),
@@ -493,11 +552,11 @@ class _TenantDashboardState extends State<TenantDashboard> {
           lineBarsData: [
             LineChartBarData(
               spots: [
-                FlSpot(0, meterData['power'] ?? 0),
-                FlSpot(6, meterData['power'] ?? 0),
-                FlSpot(12, meterData['power'] ?? 0),
-                FlSpot(18, meterData['power'] ?? 0),
-                FlSpot(24, meterData['power'] ?? 0),
+                FlSpot(0, smartMeterData['power'] ?? 0),
+                FlSpot(6, smartMeterData['power'] ?? 0),
+                FlSpot(12, smartMeterData['power'] ?? 0),
+                FlSpot(18, smartMeterData['power'] ?? 0),
+                FlSpot(24, smartMeterData['power'] ?? 0),
               ],
               isCurved: true,
               color: Colors.green.shade600,
@@ -514,7 +573,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
     );
   }
 
-  Widget _buildMonthlyConsumptionChart(Map<dynamic, dynamic> meterData) {
+  Widget _buildMonthlyConsumptionChart(Map<dynamic, dynamic> smartMeterData) {
     return Container(
       height: 200,
       padding: const EdgeInsets.all(16),
@@ -550,11 +609,11 @@ class _TenantDashboardState extends State<TenantDashboard> {
           lineBarsData: [
             LineChartBarData(
               spots: [
-                FlSpot(0, meterData['energy'] ?? 0),
-                FlSpot(7, meterData['energy'] ?? 0),
-                FlSpot(14, meterData['energy'] ?? 0),
-                FlSpot(21, meterData['energy'] ?? 0),
-                FlSpot(30, meterData['energy'] ?? 0),
+                FlSpot(0, smartMeterData['energy'] ?? 0),
+                FlSpot(7, smartMeterData['energy'] ?? 0),
+                FlSpot(14, smartMeterData['energy'] ?? 0),
+                FlSpot(21, smartMeterData['energy'] ?? 0),
+                FlSpot(30, smartMeterData['energy'] ?? 0),
               ],
               isCurved: true,
               color: Colors.green.shade400,
@@ -572,112 +631,257 @@ class _TenantDashboardState extends State<TenantDashboard> {
   }
 
   Widget _buildConsumptionTab() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_consumptionData.isEmpty) {
+    if (_consumptionData.isEmpty && _smartMeterData.isEmpty) {
       return const Center(
-        child: Text('Aucune donnée disponible'),
+        child: Text('Aucune donnée disponible dans le tableau de bord'),
       );
     }
 
-    final compteurs = _consumptionData['compteurs'] as Map? ?? {};
-    print('Compteurs: $compteurs');
+    // Données de consommation utilisateur (depuis _consumptionData)
+    final monthlyData = _consumptionData['monthly_consumption'] as Map? ?? {};
+    final statistics = _consumptionData['statistics'] as Map? ?? {};
 
-    if (compteurs.isEmpty) {
-      return Card(
-        elevation: 4,
-        margin: const EdgeInsets.all(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.electric_meter,
-                size: 48,
-                color: Colors.grey,
+    // Données du compteur intelligent (depuis _smartMeterData)
+    final lastReading = _smartMeterData['last_reading'] as Map? ?? {};
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // En-tête avec statistiques globales
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Statistiques Annuelles',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildStatisticItem(
+                          'Total Annuel',
+                          '${statistics['annual_total'] ?? 0}',
+                          'kWh',
+                          Icons.calendar_today,
+                          Colors.blue,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildStatisticItem(
+                          'Maximum',
+                          '${statistics['maximum'] ?? 0}',
+                          'kWh',
+                          Icons.arrow_upward,
+                          Colors.red,
+                        ),
+                      ),
+                      Expanded(
+                        child: _buildStatisticItem(
+                          'Minimum',
+                          '${statistics['minimum'] ?? 0}',
+                          'kWh',
+                          Icons.arrow_downward,
+                          Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Aucun compteur assigné',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Détails du compteur intelligent
+          Card(
+            elevation: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Détails du Compteur Intelligent',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildDetailRow(
+                    'État',
+                    _smartMeterData['is_active'] == true ? 'Actif' : 'Inactif',
+                    _smartMeterData['is_active'] == true
+                        ? Colors.green
+                        : Colors.red,
+                  ),
+                  _buildDetailRow(
+                    'Puissance Actuelle',
+                    '${_smartMeterData['current_power'] ?? 0} W',
+                    Colors.blue,
+                  ),
+                  _buildDetailRow(
+                    'Dernière Lecture',
+                    '${lastReading['value'] ?? 0} kWh',
+                    Colors.orange,
+                  ),
+                  _buildDetailRow(
+                    'Date de Lecture',
+                    _formatTimestamp(lastReading['timestamp']),
+                    Colors.purple,
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Veuillez contacter votre propriétaire pour vous assigner un compteur.',
-                textAlign: TextAlign.center,
-              ),
-            ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Graphique de consommation mensuelle
+          const Text(
+            'Consommation Mensuelle',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _buildMonthlyConsumptionList(monthlyData),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatisticItem(
+      String label, String value, String unit, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
           ),
         ),
-      );
-    }
+        Text(
+          unit,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
 
-    // Pour un locataire, on ne prend que le premier compteur assigné
-    final meterId = compteurs.keys.first;
-    print('MeterId sélectionné: $meterId');
-    final meterData = compteurs[meterId] as Map<dynamic, dynamic>? ?? {};
+  Widget _buildDetailRow(String label, String value, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.grey,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTimestamp(dynamic timestamp) {
+    if (timestamp == null) return 'Non disponible';
+    final date = DateTime.fromMillisecondsSinceEpoch(timestamp as int);
+    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}';
+  }
+
+  Widget _buildMonthlyConsumptionList(Map monthlyData) {
+    final months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December'
+    ];
 
     return Card(
       elevation: 4,
-      margin: const EdgeInsets.all(16),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Mon Compteur Intelligent',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ListTile(
-              leading: Icon(
-                Icons.electric_meter,
-                color:
-                    meterData['isActive'] == true ? Colors.green : Colors.grey,
-              ),
-              title: Text('Compteur $meterId'),
-              subtitle: Text(
-                meterData['isActive'] == true ? 'En ligne' : 'Hors ligne',
-                style: TextStyle(
-                  color: meterData['isActive'] == true
-                      ? Colors.green
-                      : Colors.grey,
-                ),
-              ),
-              trailing: Text(
-                '${(meterData['power'] ?? 0).toStringAsFixed(2)} W',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => SmartMeterDetail(
-                      meterId: meterId,
-                      isOwner: false,
+          children: months.map((month) {
+            final value = (monthlyData[month] ?? 0) as num;
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 100,
+                    child: Text(
+                      month,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey,
+                      ),
                     ),
                   ),
-                );
-              },
-              child: const Text('Voir les détails'),
-            ),
-          ],
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      value: value / 300, // Normalisé sur 300 kWh
+                      backgroundColor: Colors.grey[200],
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.blue),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Text(
+                    '${value.toStringAsFixed(1)} kWh',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
         ),
       ),
     );

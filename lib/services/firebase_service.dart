@@ -5,6 +5,7 @@ import 'package:eco_gestion/models/user_model.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'dart:async';
 
 class FirebaseService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -108,8 +109,10 @@ class FirebaseService {
 
       print('Connexion réussie pour: $email (${userType})');
 
+      // Retourner les données utilisateur dans un format simple
       return {
-        'user': userCredential.user,
+        'uid': userCredential.user!.uid,
+        'email': userCredential.user!.email,
         'userType': userType,
         'userData': userData,
       };
@@ -398,24 +401,10 @@ class FirebaseService {
 
       print('Type d\'utilisateur: $userType');
 
-      // Structure simplifiée pour le test
-      final testData = {
-        'lastUpdate': DateTime.now().millisecondsSinceEpoch,
-        'type': userType
-      };
-
-      // Tester l'écriture avec des données simples d'abord
-      print('Test d\'écriture des données simples...');
-      await _database
-          .child('users')
-          .child(currentUser!.uid)
-          .child('test')
-          .set(testData);
-
-      // Si le test réussit, écrire les données complètes
+      // Initialiser les données pour le propriétaire et le locataire
       final consumptionData = {
         'consumption': {
-          userType: {
+          'owner': {
             'monthly_consumption': {
               'January': 120,
               'February': 140,
@@ -449,6 +438,44 @@ class FirebaseService {
                   'energy': 8.50,
                   'powerFactor': 0.97,
                   'frequency': 49.85
+                }
+              }
+            }
+          },
+          'tenant': {
+            'monthly_consumption': {
+              'January': 100,
+              'February': 120,
+              'March': 140,
+              'April': 160,
+              'May': 180,
+              'June': 200,
+              'July': 220,
+              'August': 200,
+              'September': 180,
+              'October': 160,
+              'November': 140,
+              'December': 120
+            },
+            'statistics': {
+              'average': 160,
+              'maximum': 220,
+              'minimum': 100,
+              'annual_total': 1920
+            },
+            'smart_meter': {
+              'compteur_simule_1': {
+                'current_power': 2000.0,
+                'is_active': true,
+                'last_reading': {
+                  'timestamp': DateTime.now().millisecondsSinceEpoch,
+                  'value': 2000.0,
+                  'voltage': 230.0,
+                  'current': 8.7,
+                  'power': 2000.0,
+                  'energy': 7.5,
+                  'powerFactor': 0.95,
+                  'frequency': 50.0
                 }
               }
             }
@@ -533,7 +560,8 @@ class FirebaseService {
   Future<Map<String, dynamic>> getSmartMeterData(
       String meterId, bool isOwner) async {
     final data = await getConsumptionData(isOwner);
-    final meterData = (data['compteurs'] as Map?)?[meterId] as Map?;
+    final meterData =
+        (data['smart_meter'] as Map?)?['compteur_simule_1'] as Map?;
 
     if (meterData != null) {
       return Map<String, dynamic>.from(meterData);
@@ -595,54 +623,52 @@ class FirebaseService {
     }
   }
 
-  // Méthode pour initialiser ou mettre à jour la structure d'un compteur
-  Future<void> initializeMeterStructure(String meterId,
-      {String? name, String? roomId}) async {
+  // Méthode pour récupérer le type d'utilisateur par UID
+  Future<String> getUserTypeByUid(String uid) async {
     try {
-      final DatabaseReference meterRef =
-          FirebaseDatabase.instance.ref('compteurs/$meterId');
-
-      // Structure complète d'un compteur avec des valeurs par défaut
-      final meterData = {
-        'name': name ?? 'Compteur $meterId',
-        'roomId': roomId,
-        'frequency': 50.0,
-        'powerFactor': 0.0,
-        'current': 0.0,
-        'power': 0.0,
-        'energy': 0.0,
-        'voltage': 230.0,
-        'isOnline': false,
-        'isActive': true,
-        'lastUpdate': ServerValue.timestamp,
-        'settings': {
-          'maxPower': 4500.0, // Puissance maximale en watts
-          'alertThreshold': 4000.0, // Seuil d'alerte en watts
-          'samplingRate': 60, // Taux d'échantillonnage en secondes
-        },
-        'status': {
-          'hasError': false,
-          'errorCode': null,
-          'lastMaintenance': ServerValue.timestamp,
-        }
-      };
-
-      // Utiliser update au lieu de set pour ne pas écraser les données existantes
-      await meterRef.update(meterData);
-
-      print(
-          'Structure du compteur $meterId initialisée/mise à jour avec succès');
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      if (!userDoc.exists) {
+        throw Exception('Utilisateur non trouvé');
+      }
+      final userData = userDoc.data();
+      final userType = userData?['userType'] as String?;
+      if (userType == null) {
+        throw Exception('Type d\'utilisateur non défini');
+      }
+      return userType;
     } catch (e) {
-      print('Erreur lors de l\'initialisation du compteur: $e');
+      print('Erreur lors de la récupération du type d\'utilisateur: $e');
       rethrow;
     }
   }
 
-  // Méthode pour récupérer les données complètes d'un compteur
+  // Méthode pour récupérer les données du compteur
   Future<Map<String, dynamic>> getMeterData(String meterId) async {
-    final snapshot =
-        await FirebaseDatabase.instance.ref('compteurs/$meterId').get();
-    return snapshot.value as Map<String, dynamic>;
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('Utilisateur non connecté');
+
+      final userType = await getUserTypeByUid(user.uid);
+      final databaseRef = FirebaseDatabase.instance.ref();
+
+      final meterRef = databaseRef
+          .child('users')
+          .child(user.uid)
+          .child('consumption')
+          .child(userType)
+          .child('smart_meter')
+          .child('compteur_simule_1');
+
+      final snapshot = await meterRef.get();
+      if (!snapshot.exists) {
+        throw Exception('Compteur non trouvé');
+      }
+
+      return Map<String, dynamic>.from(snapshot.value as Map);
+    } catch (e) {
+      print('Erreur lors de la récupération des données du compteur: $e');
+      rethrow;
+    }
   }
 
   // Méthode de débogage pour l'authentification

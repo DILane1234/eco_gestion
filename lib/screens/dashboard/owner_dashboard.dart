@@ -31,7 +31,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   void initState() {
     super.initState();
     // Démarrer la simulation
-    _simulatorService.startSimulation(SIMULATED_METER_ID);
+    _simulatorService.startSimulation();
     // Charger les données
     _loadData();
   }

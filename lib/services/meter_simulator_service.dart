@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:eco_gestion/services/firebase_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class MeterSimulatorService {
   final FirebaseService _firebaseService = FirebaseService();
@@ -9,18 +10,16 @@ class MeterSimulatorService {
   final Random _random = Random();
 
   // Méthode pour démarrer la simulation
-  Future<void> startSimulation(String meterId) async {
-    // D'abord, initialiser la structure du compteur
-    await _firebaseService.initializeMeterStructure(meterId,
-        name: 'Compteur Simulé', roomId: 'salon');
-
-    // Arrêter toute simulation existante
-    stopSimulation();
-
-    // Démarrer une nouvelle simulation avec mise à jour toutes les 5 secondes
-    _simulationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      _updateSimulatedData(meterId);
-    });
+  Future<void> startSimulation() async {
+    try {
+      // Démarrer la simulation
+      _simulationTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+        _simulateMeterData();
+      });
+    } catch (e) {
+      print('Erreur lors du démarrage de la simulation: $e');
+      rethrow;
+    }
   }
 
   // Arrêter la simulation
@@ -62,11 +61,25 @@ class MeterSimulatorService {
 
   Future<void> _updateFirebase(
       String meterId, Map<String, dynamic> data) async {
-    // Mettre à jour dans Firebase
-    await FirebaseDatabase.instance
-        .ref('compteurs')
-        .child(meterId)
-        .update(data);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final userType = await _firebaseService.getUserTypeByUid(user.uid);
+      final databaseRef = FirebaseDatabase.instance.ref();
+
+      final meterRef = databaseRef
+          .child('users')
+          .child(user.uid)
+          .child('consumption')
+          .child(userType)
+          .child('smart_meter')
+          .child('compteur_simule_1');
+
+      await meterRef.update(data);
+    } catch (e) {
+      print('Erreur lors de la mise à jour des données: $e');
+    }
   }
 
   // Simuler une accumulation d'énergie réaliste
@@ -78,5 +91,47 @@ class MeterSimulatorService {
 
     // Base de 0.5 kWh par heure avec variation aléatoire
     return hoursSinceStartOfDay * (0.5 + _random.nextDouble() * 0.2);
+  }
+
+  // Méthode pour simuler les données du compteur
+  Future<void> _simulateMeterData() async {
+    try {
+      final databaseRef = FirebaseDatabase.instance.ref();
+      final meterRef = databaseRef
+          .child('compteurs') // Chemin global pour les compteurs
+          .child('compteur_simule_1');
+
+      // Générer des valeurs aléatoires réalistes
+      final voltage = 220.0 + (Random().nextDouble() * 20 - 10); // 210-230V
+      final current = 5.0 + (Random().nextDouble() * 10); // 5-15A
+      final power = voltage * current; // Puissance en watts
+      final powerFactor = 0.85 + (Random().nextDouble() * 0.15); // 0.85-1.0
+      final frequency = 49.8 + (Random().nextDouble() * 0.4); // 49.8-50.2Hz
+      final energy = power / 1000; // Énergie en kWh
+
+      final data = {
+        'is_active': true,
+        'current_power': power,
+        'last_reading': {
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'value': power,
+          'voltage': voltage,
+          'current': current,
+          'power': power,
+          'energy': energy,
+          'powerFactor': powerFactor,
+          'frequency': frequency
+        },
+        'name': 'Compteur Simulé', // Ajout des champs comme dans l'image
+        'roomId': 'salon',
+        'isOnline': true,
+        // 'settings': {}, // Laisser vide ou initialiser si besoin
+        // 'status': {}, // Laisser vide ou initialiser si besoin
+      };
+
+      await meterRef.update(data);
+    } catch (e) {
+      print('Erreur lors de la simulation des données: $e');
+    }
   }
 }

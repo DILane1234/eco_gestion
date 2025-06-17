@@ -12,12 +12,28 @@ import 'package:eco_gestion/screens/settings/settings_screen.dart';
 import 'package:eco_gestion/screens/auth/forgot_password_screen.dart';
 import 'package:eco_gestion/screens/profile/profile_screen.dart';
 import 'firebase_options.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_database/firebase_database.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Initialize Firebase App Check with debug provider
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: AndroidProvider.debug,
+    appleProvider: AppleProvider.debug,
+    webProvider: ReCaptchaV3Provider('recaptcha-v3-site-key'),
+  );
+
+  // Configure Firebase Database
+  FirebaseDatabase.instance.setPersistenceEnabled(true);
+  FirebaseDatabase.instance.setPersistenceCacheSizeBytes(10000000);
+
   runApp(const MyApp());
 }
 

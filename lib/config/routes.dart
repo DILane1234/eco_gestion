@@ -9,7 +9,7 @@ import 'package:eco_gestion/screens/auth/change_password_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:eco_gestion/screens/auth/splash_screen.dart';
 import 'package:eco_gestion/screens/auth/login_screen.dart';
-import 'package:eco_gestion/screens/auth/auth_check.dart'; 
+import 'package:eco_gestion/screens/auth/auth_check.dart';
 
 class AppRoutes {
   // Définition des constantes de routes
@@ -39,16 +39,16 @@ class AppRoutes {
     register: (context) => const RegisterScreen(),
     // Supprimer cette ligne
     // smartMeterDetail: (context) =>
-    //     const SmartMeterDetail(meterId: 'compteur1', isOwner: true),
+    //     const SmartMeterDetail(meterId: 'compteur_simule_1', isOwner: true),
     changePassword: (context) => const ChangePasswordScreen(),
-};
+  };
 
   // Ajouter cette méthode dans la classe AppRoutes
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     if (settings.name == smartMeterDetail) {
       // Récupérer les arguments
       final args = settings.arguments as Map<String, dynamic>?;
-      
+
       // Vérifier si l'ID du compteur est fourni
       if (args == null || args['meterId'] == null) {
         return MaterialPageRoute(
@@ -57,7 +57,7 @@ class AppRoutes {
           ),
         );
       }
-      
+
       return MaterialPageRoute(
         builder: (context) => SmartMeterDetail(
           meterId: args['meterId'] as String,
@@ -65,10 +65,7 @@ class AppRoutes {
         ),
       );
     }
-    
 
-    
-    
     return MaterialPageRoute(
       builder: (_) => const Scaffold(
         body: Center(child: Text('Route non trouvée')),

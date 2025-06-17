@@ -1,0 +1,42 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        
+        "monthly_consumption": {
+          ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'owner')",
+          ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'owner')"
+        },
+        
+        "smart_meter": {
+          "$meterId": {
+            ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'owner')",
+            ".write": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'owner')"
+          }
+        }
+      }
+    },
+
+    "public_data": {
+      ".read": true,
+      ".write": false
+    },
+
+    "test": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+
+    "compteurs": {
+      "$meterId": {
+        ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'owner' || root.child('users').child(auth.uid).child('meterId').val() === $meterId || $meterId === 'compteur_simule_1')",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'owner'"
+      }
+    },
+
+    ".read": false,
+    ".write": false
+  }
+} 
