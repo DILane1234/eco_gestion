@@ -67,5 +67,4 @@ class DefaultFirebaseOptions {
     databaseURL: 'https://ecogestionapp-default-rtdb.firebaseio.com',
     storageBucket: 'ecogestionapp.firebasestorage.app',
   );
-
 }

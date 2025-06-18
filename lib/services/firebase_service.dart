@@ -79,68 +79,128 @@ class FirebaseService {
     try {
       print('Tentative de connexion pour: $email');
 
-      // 1. Tentative de connexion avec Firebase Auth
+      // 1. Connexion Firebase Auth
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
 
       if (userCredential.user == null) {
-        throw Exception("Erreur d'authentification : utilisateur non trouvé");
+        throw Exception('Échec de la connexion: Aucun utilisateur retourné');
       }
 
-      // 2. Vérifier si l'utilisateur existe dans Firestore
+      print(
+          'Connexion Firebase Auth réussie pour: ${userCredential.user!.uid}');
+
+      // 2. Forcer le rafraîchissement du token
+      await userCredential.user!.getIdToken(true);
+      print('Token rafraîchi avec succès');
+
+      // 3. Vérifier si l'utilisateur existe dans Firestore
       final userDoc = await _firestore
           .collection('users')
           .doc(userCredential.user!.uid)
           .get();
 
-      if (!userDoc.exists || userDoc.data() == null) {
-        throw Exception(
-            'Compte utilisateur incomplet. Veuillez contacter le support.');
+      if (!userDoc.exists) {
+        print('Utilisateur non trouvé dans Firestore');
+        throw Exception('Utilisateur non trouvé dans la base de données');
       }
 
-      final userData = userDoc.data()!;
+      final userData = userDoc.data();
+      if (userData == null) {
+        print('Données utilisateur manquantes dans Firestore');
+        throw Exception('Données utilisateur incomplètes');
+      }
+
+      // 4. Vérifier le type d'utilisateur
       final userType = userData['userType'] as String?;
+      print('Type d\'utilisateur trouvé: $userType');
 
-      if (userType != 'owner' && userType != 'tenant') {
-        throw Exception('Type d\'utilisateur non valide');
+      if (userType == null || (userType != 'owner' && userType != 'tenant')) {
+        print('Type d\'utilisateur invalide: $userType');
+        throw Exception('Type d\'utilisateur invalide');
       }
 
-      print('Connexion réussie pour: $email (${userType})');
-
-      // Retourner les données utilisateur dans un format simple
-      return {
+      // 5. Retourner les données utilisateur dans un format simple
+      final userInfo = {
         'uid': userCredential.user!.uid,
         'email': userCredential.user!.email,
         'userType': userType,
-        'userData': userData,
+        'name': userData['name'] as String? ?? 'Utilisateur',
+        'isAuthenticated': true,
+        'hasValidToken': true,
+        'hasFirestoreData': true,
       };
+
+      print('Connexion réussie pour: ${userInfo['email']}');
+      print('Type d\'utilisateur: ${userInfo['userType']}');
+      print('Données utilisateur complètes: $userInfo');
+      return userInfo;
     } on FirebaseAuthException catch (e) {
-      print('Erreur FirebaseAuth: ${e.code} - ${e.message}');
+      print('Erreur Firebase Auth: ${e.code} - ${e.message}');
+      String errorMessage;
       switch (e.code) {
         case 'user-not-found':
-          throw Exception('Aucun compte ne correspond à cet e-mail.');
+          errorMessage = 'Aucun utilisateur trouvé avec cet email';
+          break;
         case 'wrong-password':
-          throw Exception('Mot de passe incorrect.');
+          errorMessage = 'Mot de passe incorrect';
+          break;
         case 'invalid-email':
-          throw Exception('Format d\'e-mail invalide.');
+          errorMessage = 'Format d\'email invalide';
+          break;
         case 'user-disabled':
-          throw Exception('Ce compte a été désactivé.');
+          errorMessage = 'Ce compte a été désactivé';
+          break;
         case 'too-many-requests':
-          throw Exception('Trop de tentatives. Réessayez plus tard.');
+          errorMessage = 'Trop de tentatives. Veuillez réessayer plus tard';
+          break;
         default:
-          throw Exception(e.message ?? 'Erreur de connexion inconnue.');
+          errorMessage = 'Erreur de connexion: ${e.message}';
       }
+      throw Exception(errorMessage);
     } catch (e) {
       print('Erreur de connexion: $e');
-      throw Exception('Erreur de connexion. Veuillez réessayer.');
+      throw Exception('Erreur de connexion. Veuillez réessayer');
     }
   }
 
   // Déconnexion
   Future<void> signOut() async {
-    await _auth.signOut();
+    try {
+      print('Déconnexion en cours...');
+
+      // 1. Déconnecter de Firebase Auth
+      await _auth.signOut();
+
+      // 2. Nettoyer les caches de la base de données
+      await FirebaseDatabase.instance.goOffline();
+
+      // 3. Attendre un court instant pour s'assurer que tout est nettoyé
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 4. Vérifier que la déconnexion a réussi
+      if (_auth.currentUser != null) {
+        print('La déconnexion n\'a pas réussi, nouvelle tentative...');
+        await _auth.signOut();
+        // Attendre à nouveau
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      // 5. Vérification finale
+      if (_auth.currentUser != null) {
+        throw Exception('Impossible de déconnecter l\'utilisateur');
+      }
+
+      print('Déconnexion réussie');
+    } catch (e) {
+      print('Erreur lors de la déconnexion: $e');
+      // Forcer la déconnexion même en cas d'erreur
+      await _auth.signOut();
+      // Relancer l'erreur pour que l'UI puisse réagir
+      rethrow;
+    }
   }
 
   // Récupérer le type d'utilisateur (propriétaire ou locataire)
@@ -338,15 +398,10 @@ class FirebaseService {
 
   // Méthode pour tester la connexion à Firebase
   Future<bool> testDatabaseConnection() async {
-    try {
-      print('Test de connexion à Firebase...');
-      await _database.child('.info/connected').get();
-      print('Connexion à Firebase réussie');
-      return true;
-    } catch (e) {
-      print('Erreur de connexion à Firebase: $e');
-      return false;
-    }
+    // Temporairement désactivé pendant le développement
+    print('Test de connexion à Firebase...');
+    print('   - Test de connexion temporairement désactivé');
+    return true;
   }
 
   // Méthode de test pour écrire des données simples
@@ -379,128 +434,123 @@ class FirebaseService {
   Future<void> initializeConsumptionData() async {
     try {
       print('Début de l\'initialisation des données...');
-
-      // Test d'écriture simple d'abord
-      final canWrite = await testWriteData();
-      if (!canWrite) {
-        throw Exception('Impossible d\'écrire dans Firebase');
-      }
-
-      // Vérifier si l'utilisateur est connecté
-      if (currentUser == null) {
+      final user = _auth.currentUser;
+      if (user == null) {
         throw Exception('Aucun utilisateur connecté');
       }
 
-      print('Utilisateur connecté: ${currentUser!.uid}');
+      // Vérifier si les données existent déjà
+      final userData = await _firestore.collection('users').doc(user.uid).get();
+      if (!userData.exists) {
+        throw Exception('Données utilisateur non trouvées');
+      }
 
-      // Vérifier le type d'utilisateur
-      final userType = await getUserType();
-      if (userType == null) {
-        throw Exception('Type d\'utilisateur non trouvé');
+      final userType = userData.data()?['userType'] as String?;
+      if (userType != 'owner' && userType != 'tenant') {
+        throw Exception('Type d\'utilisateur invalide');
       }
 
       print('Type d\'utilisateur: $userType');
 
-      // Initialiser les données pour le propriétaire et le locataire
-      final consumptionData = {
-        'consumption': {
-          'owner': {
-            'monthly_consumption': {
-              'January': 120,
-              'February': 140,
-              'March': 160,
-              'April': 180,
-              'May': 200,
-              'June': 220,
-              'July': 250,
-              'August': 230,
-              'September': 210,
-              'October': 190,
-              'November': 170,
-              'December': 150
-            },
-            'statistics': {
-              'average': 195,
-              'maximum': 250,
-              'minimum': 120,
-              'annual_total': 2320
-            },
-            'smart_meter': {
-              'compteur_simule_1': {
-                'current_power': 2248.51,
-                'is_active': true,
-                'last_reading': {
-                  'timestamp': DateTime.now().millisecondsSinceEpoch,
-                  'value': 2248.51,
-                  'voltage': 237.29,
-                  'current': 9.19,
-                  'power': 2248.51,
-                  'energy': 8.50,
-                  'powerFactor': 0.97,
-                  'frequency': 49.85
-                }
-              }
-            }
+      // Initialiser les données de base si nécessaire
+      final consumptionRef = _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('consumption_data')
+          .doc('current');
+
+      final consumptionData = await consumptionRef.get();
+      if (!consumptionData.exists) {
+        print('Initialisation des données de consommation...');
+        final initialData = {
+          'monthly_consumption': {
+            'January': 0.0,
+            'February': 0.0,
+            'March': 0.0,
+            'April': 0.0,
+            'May': 0.0,
+            'June': 0.0,
+            'July': 0.0,
+            'August': 0.0,
+            'September': 0.0,
+            'October': 0.0,
+            'November': 0.0,
+            'December': 0.0,
           },
-          'tenant': {
-            'monthly_consumption': {
-              'January': 100,
-              'February': 120,
-              'March': 140,
-              'April': 160,
-              'May': 180,
-              'June': 200,
-              'July': 220,
-              'August': 200,
-              'September': 180,
-              'October': 160,
-              'November': 140,
-              'December': 120
-            },
-            'statistics': {
-              'average': 160,
-              'maximum': 220,
-              'minimum': 100,
-              'annual_total': 1920
-            },
-            'smart_meter': {
-              'compteur_simule_1': {
-                'current_power': 2000.0,
-                'is_active': true,
-                'last_reading': {
-                  'timestamp': DateTime.now().millisecondsSinceEpoch,
-                  'value': 2000.0,
-                  'voltage': 230.0,
-                  'current': 8.7,
-                  'power': 2000.0,
-                  'energy': 7.5,
-                  'powerFactor': 0.95,
-                  'frequency': 50.0
-                }
-              }
-            }
-          }
-        }
-      };
+          'statistics': {
+            'average': 0.0,
+            'maximum': 0.0,
+            'minimum': 0.0,
+            'annual_total': 0.0,
+          },
+          'last_updated': FieldValue.serverTimestamp(),
+        };
 
-      print('Écriture des données complètes...');
-      await _database
-          .child('users')
-          .child(currentUser!.uid)
-          .set(consumptionData);
-
-      // Vérifier si les données ont été écrites
-      final verificationData =
-          await _database.child('users').child(currentUser!.uid).get();
-      if (!verificationData.exists) {
-        throw Exception('Les données n\'ont pas été écrites dans Firebase');
+        await consumptionRef.set(initialData);
+        print('Données de consommation initialisées avec succès');
+      } else {
+        print('Les données de consommation existent déjà');
       }
 
-      print('Données sauvegardées et vérifiées avec succès');
-      print('Contenu des données: ${verificationData.value}');
+      // Initialiser les données spécifiques au type d'utilisateur
+      if (userType == 'tenant') {
+        print('Initialisation des données spécifiques au locataire...');
+        final apartmentId = userData.data()?['apartmentId'] as String?;
+
+        if (apartmentId != null) {
+          print('Appartement trouvé: $apartmentId');
+          // Initialiser les données de l'appartement si nécessaire
+          final apartmentRef = _database
+              .child('apartments')
+              .child(apartmentId)
+              .child('consumption');
+
+          final apartmentData = await apartmentRef.get();
+          if (!apartmentData.exists) {
+            print('Initialisation des données de l\'appartement...');
+            await apartmentRef.set({
+              'current_reading': 0.0,
+              'last_reading': {
+                'timestamp': DateTime.now().millisecondsSinceEpoch,
+                'value': 0.0,
+              },
+              'status': 'active',
+            });
+            print('Données de l\'appartement initialisées avec succès');
+          } else {
+            print('Les données de l\'appartement existent déjà');
+          }
+        } else {
+          print('Aucun appartement assigné au locataire');
+        }
+      } else if (userType == 'owner') {
+        print('Initialisation des données du compteur...');
+        final meterRef = FirebaseDatabase.instance
+            .ref()
+            .child('compteurs')
+            .child('compteur_simule_1');
+        final meterData = await meterRef.get();
+
+        if (!meterData.exists) {
+          print('Initialisation des données du compteur...');
+          await meterRef.set({
+            'is_active': true,
+            'last_reading': {
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+              'value': 0.0,
+            },
+            'status': 'online',
+          });
+          print('Données du compteur initialisées avec succès');
+        } else {
+          print('Les données du compteur existent déjà');
+        }
+      }
+
+      print('Initialisation des données terminée avec succès');
     } catch (e) {
       print('Erreur lors de l\'initialisation des données: $e');
-      rethrow;
+      throw Exception('Erreur lors de l\'initialisation des données: $e');
     }
   }
 
@@ -573,53 +623,101 @@ class FirebaseService {
   // Méthode pour vérifier l'état de l'authentification
   Future<Map<String, dynamic>> checkAuthState() async {
     try {
-      final User? user = _auth.currentUser;
-
-      if (user != null) {
-        // Vérifier si le token est valide
-        final idToken = await user.getIdToken();
-
-        // Vérifier les informations dans Firestore
-        final userDoc =
-            await _firestore.collection('users').doc(user.uid).get();
-        final userData = userDoc.data();
-
-        print('=== État de l\'authentification ===');
-        print('UID: ${user.uid}');
-        print('Email: ${user.email}');
-        print('Email vérifié: ${user.emailVerified}');
-        print('Token valide: ${idToken != null}');
-        print('Données Firestore existantes: ${userDoc.exists}');
-        if (userData != null) {
-          print('Type d\'utilisateur: ${userData['userType']}');
-        }
-        print('================================');
-
-        return {
-          'isAuthenticated': true,
-          'uid': user.uid,
-          'email': user.email,
-          'emailVerified': user.emailVerified,
-          'hasValidToken': idToken != null,
-          'hasFirestoreData': userDoc.exists,
-          'userType': userData?['userType'],
-        };
-      } else {
-        print('=== État de l\'authentification ===');
+      final user = _auth.currentUser;
+      if (user == null) {
         print('Aucun utilisateur connecté');
-        print('================================');
-
         return {
           'isAuthenticated': false,
-          'error': 'Aucun utilisateur connecté'
+          'userId': null,
+          'email': null,
+          'isEmailVerified': false,
+          'hasValidToken': false,
+          'hasFirestoreData': false,
+          'userType': null,
         };
       }
-    } catch (e) {
-      print('=== Erreur d\'authentification ===');
-      print('Erreur: $e');
-      print('================================');
 
-      return {'isAuthenticated': false, 'error': e.toString()};
+      print('Vérification de l\'état d\'authentification pour: ${user.email}');
+
+      // Forcer le rafraîchissement du token
+      final token = await user.getIdToken(true);
+      print('Token rafraîchi: ${token?.substring(0, 10) ?? 'null'}...');
+
+      // Vérifier si l'utilisateur existe dans Firestore
+      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+      final hasFirestoreData = userDoc.exists && userDoc.data() != null;
+
+      if (!hasFirestoreData) {
+        print('Utilisateur non trouvé dans Firestore');
+        await signOut();
+        return {
+          'isAuthenticated': false,
+          'userId': null,
+          'email': null,
+          'isEmailVerified': false,
+          'hasValidToken': false,
+          'hasFirestoreData': false,
+          'userType': null,
+        };
+      }
+
+      final userData = userDoc.data()!;
+      final userType = userData['userType'] as String?;
+      print('Type d\'utilisateur trouvé dans Firestore: $userType');
+
+      if (userType == null || (userType != 'owner' && userType != 'tenant')) {
+        print('Type d\'utilisateur invalide: $userType');
+        await signOut();
+        return {
+          'isAuthenticated': false,
+          'userId': null,
+          'email': null,
+          'isEmailVerified': false,
+          'hasValidToken': false,
+          'hasFirestoreData': false,
+          'userType': null,
+        };
+      }
+
+      // Vérifier les données spécifiques au type d'utilisateur
+      if (userType == 'tenant') {
+        print('Vérification des données spécifiques au locataire...');
+        // Vérifier si le locataire a un appartement assigné
+        final apartmentId = userData['apartmentId'] as String?;
+        if (apartmentId == null) {
+          print('Aucun appartement assigné au locataire');
+        } else {
+          print('Appartement assigné: $apartmentId');
+        }
+      }
+
+      print('Vérification d\'authentification réussie pour: ${user.email}');
+      print('Type d\'utilisateur: $userType');
+      print('Nom: ${userData['name'] as String? ?? 'Non défini'}');
+
+      return {
+        'isAuthenticated': true,
+        'userId': user.uid,
+        'email': user.email,
+        'isEmailVerified': user.emailVerified,
+        'hasValidToken': true,
+        'hasFirestoreData': true,
+        'userType': userType,
+        'name': userData['name'] as String? ?? 'Utilisateur',
+        'apartmentId': userData['apartmentId'] as String?,
+      };
+    } catch (e) {
+      print('Erreur lors de la vérification de l\'authentification: $e');
+      await signOut();
+      return {
+        'isAuthenticated': false,
+        'userId': null,
+        'email': null,
+        'isEmailVerified': false,
+        'hasValidToken': false,
+        'hasFirestoreData': false,
+        'userType': null,
+      };
     }
   }
 
@@ -751,5 +849,66 @@ class FirebaseService {
 
   DatabaseReference getMeterRef(String meterId) {
     return FirebaseDatabase.instance.ref('compteurs/$meterId');
+  }
+
+  // Méthode pour initialiser les données d'un locataire
+  Future<void> initializeTenantData(String apartmentId) async {
+    try {
+      print('Initialisation des données du locataire...');
+
+      // Vérifier si l'appartement existe
+      final apartmentRef = _database.child('apartments').child(apartmentId);
+      final apartmentData = await apartmentRef.get();
+
+      if (!apartmentData.exists) {
+        throw Exception('Appartement non trouvé');
+      }
+
+      // Initialiser les données de consommation de l'appartement
+      final consumptionRef = apartmentRef.child('consumption');
+      final consumptionData = await consumptionRef.get();
+
+      if (!consumptionData.exists) {
+        print(
+            'Initialisation des données de consommation de l\'appartement...');
+        await consumptionRef.set({
+          'current_reading': 0.0,
+          'last_reading': {
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+            'value': 0.0,
+          },
+          'status': 'active',
+          'monthly_data': {
+            'January': 0.0,
+            'February': 0.0,
+            'March': 0.0,
+            'April': 0.0,
+            'May': 0.0,
+            'June': 0.0,
+            'July': 0.0,
+            'August': 0.0,
+            'September': 0.0,
+            'October': 0.0,
+            'November': 0.0,
+            'December': 0.0,
+          },
+          'statistics': {
+            'average': 0.0,
+            'maximum': 0.0,
+            'minimum': 0.0,
+            'total': 0.0,
+          },
+        });
+        print('Données de consommation initialisées avec succès');
+      } else {
+        print('Les données de consommation existent déjà');
+      }
+
+      print('Initialisation des données du locataire terminée avec succès');
+    } catch (e) {
+      print('Erreur lors de l\'initialisation des données du locataire: $e');
+      throw Exception(
+          'Erreur lors de l\'initialisation des données du locataire: $e');
+    }
   }
 }

@@ -1,102 +1,204 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:eco_gestion/services/firebase_service.dart';
 
-class MeterDisplay extends StatelessWidget {
+class MeterDisplay extends StatefulWidget {
   final String meterId;
 
   const MeterDisplay({super.key, required this.meterId});
 
   @override
+  State<MeterDisplay> createState() => _MeterDisplayState();
+}
+
+class _MeterDisplayState extends State<MeterDisplay> {
+  final FirebaseService _firebaseService = FirebaseService();
+  bool _isLoading = true;
+  Map<String, dynamic>? _meterData;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMeterData();
+  }
+
+  Future<void> _loadMeterData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      // Vérifier l'état d'authentification
+      final authState = await _firebaseService.checkAuthState();
+      if (!authState['isAuthenticated']) {
+        throw Exception('Utilisateur non authentifié');
+      }
+
+      // Récupérer le type d'utilisateur
+      final userType = authState['userType'] as String?;
+      if (userType == null) {
+        throw Exception('Type d\'utilisateur non défini');
+      }
+
+      // Récupérer les données du compteur
+      final data = await _firebaseService.getMeterData(widget.meterId);
+      if (mounted) {
+        setState(() {
+          _meterData = data;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors du chargement des données du compteur: $e');
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: FirebaseDatabase.instance.ref('compteurs').child(meterId).onValue,
-      builder: (context, AsyncSnapshot<DatabaseEvent> snapshot) {
-        if (snapshot.hasError) {
-          return const Center(
-            child: Text('Erreur de chargement des données'),
-          );
-        }
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        if (!snapshot.hasData || snapshot.data?.snapshot.value == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final data =
-            Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
-
-        return Card(
-          elevation: 4,
-          margin: const EdgeInsets.all(8),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  data['name'] ?? 'Compteur $meterId',
-                  style: Theme.of(context).textTheme.titleLarge,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 16),
-                _buildDataGrid(data),
-                const SizedBox(height: 16),
-                _buildStatusIndicators(data),
-              ],
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'Erreur de chargement des données',
+              style: Theme.of(context).textTheme.titleMedium,
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _loadMeterData,
+              child: const Text('Réessayer'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_meterData == null) {
+      return const Center(
+        child: Text('Aucune donnée disponible'),
+      );
+    }
+
+    return Card(
+      elevation: 4,
+      margin: const EdgeInsets.all(8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _meterData!['name'] ?? 'Compteur ${widget.meterId}',
+              style: Theme.of(context).textTheme.titleLarge,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 16),
+            _buildDataGrid(_meterData),
+            const SizedBox(height: 16),
+            _buildStatusIndicators(_meterData!),
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildDataGrid(Map<String, dynamic> data) {
-    final formatter = NumberFormat("#,##0.00", "fr_FR");
+  Widget _buildDataGrid(Map<String, dynamic>? data) {
+    if (data == null) {
+      return const Center(
+        child: Text('Aucune donnée disponible'),
+      );
+    }
+
+    // Conversion sécurisée des données
+    final Map<String, dynamic> safeData = {};
+    data.forEach((key, value) {
+      if (key is String) {
+        if (value is Map) {
+          // Conversion récursive des sous-maps
+          final Map<String, dynamic> subMap = {};
+          value.forEach((subKey, subValue) {
+            if (subKey is String) {
+              subMap[subKey] = subValue;
+            }
+          });
+          safeData[key] = subMap;
+        } else {
+          safeData[key] = value;
+        }
+      }
+    });
+
+    final lastReading = safeData['last_reading'] as Map<String, dynamic>?;
+    if (lastReading == null) {
+      return const Center(
+        child: Text('Aucune lecture disponible'),
+      );
+    }
 
     return GridView.count(
-      crossAxisCount: 2,
       shrinkWrap: true,
-      childAspectRatio: 2.0,
-      mainAxisSpacing: 12,
-      crossAxisSpacing: 8,
       physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 1.5,
       children: [
-        _buildDataItem(
+        _buildDataTile(
           'Puissance',
-          '${formatter.format(data['power'] ?? 0)} W',
-          Icons.bolt,
+          '${lastReading['power']?.toStringAsFixed(1) ?? '0'}',
+          'W',
+          Icons.power,
+          Colors.blue,
         ),
-        _buildDataItem(
-          'Énergie',
-          '${formatter.format(data['energy'] ?? 0)} kWh',
-          Icons.energy_savings_leaf,
-        ),
-        _buildDataItem(
+        _buildDataTile(
           'Tension',
-          '${formatter.format(data['voltage'] ?? 0)} V',
-          Icons.electric_meter,
-        ),
-        _buildDataItem(
-          'Courant',
-          '${formatter.format(data['current'] ?? 0)} A',
+          '${lastReading['voltage']?.toStringAsFixed(1) ?? '0'}',
+          'V',
           Icons.electric_bolt,
+          Colors.orange,
         ),
-        _buildDataItem(
-          'Fréquence',
-          '${formatter.format(data['frequency'] ?? 0)} Hz',
-          Icons.waves,
+        _buildDataTile(
+          'Courant',
+          '${lastReading['current']?.toStringAsFixed(2) ?? '0'}',
+          'A',
+          Icons.electric_meter,
+          Colors.green,
         ),
-        _buildDataItem(
-          'Facteur de puissance',
-          formatter.format(data['powerFactor'] ?? 0),
-          Icons.speed,
+        _buildDataTile(
+          'Énergie',
+          '${lastReading['energy']?.toStringAsFixed(1) ?? '0'}',
+          'kWh',
+          Icons.energy_savings_leaf,
+          Colors.purple,
         ),
       ],
     );
   }
 
-  Widget _buildDataItem(String label, String value, IconData icon) {
+  Widget _buildDataTile(
+      String label, String value, String unit, IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -126,7 +228,7 @@ class MeterDisplay extends StatelessWidget {
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
-              value,
+              '$value $unit',
               style: const TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.bold,
@@ -139,9 +241,9 @@ class MeterDisplay extends StatelessWidget {
   }
 
   Widget _buildStatusIndicators(Map<String, dynamic> data) {
-    final isOnline = data['isOnline'] ?? false;
-    final isActive = data['isActive'] ?? false;
-    final hasError = data['status']?['hasError'] ?? false;
+    final isOnline = data['is_active'] ?? false;
+    final isActive = data['is_active'] ?? false;
+    final hasError = data['has_error'] ?? false;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,

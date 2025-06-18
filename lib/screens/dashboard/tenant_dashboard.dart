@@ -53,119 +53,73 @@ class _TenantDashboardState extends State<TenantDashboard> {
     });
   }
 
-  Future<Map<String, dynamic>> _loadData() async {
+  Future<void> _loadData() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        print('Aucun utilisateur connecté');
+      // Vérifier d'abord l'état de l'authentification
+      final authState = await _firebaseService.checkAuthState();
+      if (!authState['isAuthenticated']) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
         });
-        return {};
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+        return;
       }
 
-      // Attendre que le token soit rafraîchi
-      final token = await user.getIdToken(true);
-      print('Token rafraîchi pour l\'utilisateur: ${user.uid}');
-
-      // Récupérer les données utilisateur depuis Firestore
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      final userData = userDoc.data() ?? {};
-      print('Données utilisateur Firestore: $userData');
-
-      // Récupérer les données du compteur de consommation de l'utilisateur (mensuelle, statistiques)
-      final databaseRef = FirebaseDatabase.instance.ref();
-      final consumptionRef =
-          databaseRef.child('users/${user.uid}/consumption/tenant');
-
-      try {
-        final consumptionSnapshot = await consumptionRef.get();
-
-        if (!consumptionSnapshot.exists) {
-          print(
-              'Aucune donnée de consommation trouvée pour l\'utilisateur, initialisation...');
-          await consumptionRef.set({
-            'monthly_consumption': {
-              'January': 120,
-              'February': 140,
-              'March': 160,
-              'April': 180,
-              'May': 200,
-              'June': 220,
-              'July': 250,
-              'August': 230,
-              'September': 210,
-              'October': 190,
-              'November': 170,
-              'December': 150
-            },
-            'statistics': {
-              'average': 195,
-              'maximum': 250,
-              'minimum': 120,
-              'annual_total': 2320
-            }
-          });
-        }
-
-        // Récupérer les données de consommation mises à jour
-        final updatedConsumptionSnapshot = await consumptionRef.get();
-        final rawConsumptionData = updatedConsumptionSnapshot.value;
-        final Map<String, dynamic> loadedConsumptionData = {};
-        if (rawConsumptionData is Map) {
-          rawConsumptionData.forEach((key, value) {
-            if (key is String) {
-              loadedConsumptionData[key] = value;
-            }
-          });
-        }
-
-        // Récupérer les données du compteur intelligent depuis le chemin global
-        final smartMeterGlobalRef =
-            databaseRef.child('compteurs/${SIMULATED_METER_ID}');
-        final smartMeterSnapshot = await smartMeterGlobalRef.get();
-        final Map<String, dynamic> loadedSmartMeterData = {};
-        if (smartMeterSnapshot.exists && smartMeterSnapshot.value is Map) {
-          (smartMeterSnapshot.value as Map).forEach((key, value) {
-            if (key is String) {
-              loadedSmartMeterData[key] = value;
-            }
-          });
-        } else {
-          print(
-              'Aucune donnée trouvée pour le compteur intelligent global: ${SIMULATED_METER_ID}');
-          // Optionnel: Initialiser des données par défaut pour le compteur global si non présent
-          // Cela devrait être géré par MeterSimulatorService, mais peut être un fallback ici.
-          // await smartMeterGlobalRef.set({...});
-        }
-
-        setState(() {
-          _consumptionData =
-              loadedConsumptionData; // Données de consommation utilisateur
-          _smartMeterData =
-              loadedSmartMeterData; // Données du compteur intelligent global
-          _isLoading = false;
-        });
-
-        return loadedConsumptionData; // Retourne les données de consommation de l'utilisateur
-      } catch (e) {
-        print(
-            'Erreur lors de l\'accès à la base de données (TenantDashboard): $e');
+      // Vérifier le type d'utilisateur
+      final userType = authState['userType'] as String?;
+      if (userType != 'tenant') {
+        print('Type d\'utilisateur invalide: $userType');
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
         });
-        return {};
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+        return;
       }
-    } catch (e) {
-      print(
-          'Erreur lors du chargement général des données (TenantDashboard): $e');
+
+      // Tester la connexion à Firebase avec un timeout
+      final isConnected = await _firebaseService.testDatabaseConnection();
+      if (!isConnected) {
+        throw Exception(
+            'Impossible de se connecter à Firebase. Veuillez vérifier votre connexion internet.');
+      }
+
+      // Initialiser les données de consommation si nécessaire
+      await _firebaseService.initializeConsumptionData();
+
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      return {};
+    } catch (e) {
+      print('Erreur lors du chargement des données: $e');
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+      });
+
+      // Afficher un message d'erreur plus explicite
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur de chargement: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Réessayer',
+            textColor: Colors.white,
+            onPressed: () {
+              _loadData();
+            },
+          ),
+        ),
+      );
     }
   }
 

@@ -28,39 +28,8 @@ class MeterSimulatorService {
     _simulationTimer = null;
   }
 
-  // Générer des données simulées réalistes
-  void _updateSimulatedData(String meterId) {
-    // Simuler des variations réalistes
-    final baseVoltage = 230.0;
-    final basePower = 2000.0; // 2kW en moyenne
-
-    final data = {
-      'frequency': 50.0 + _random.nextDouble() * 0.4 - 0.2, // 49.8-50.2 Hz
-      'powerFactor': 0.92 + _random.nextDouble() * 0.06, // 0.92-0.98
-      'current': (basePower / baseVoltage) *
-          (0.9 + _random.nextDouble() * 0.2), // Variation ±10%
-      'power': basePower * (0.8 + _random.nextDouble() * 0.4), // Variation ±20%
-      'energy': _calculateEnergy(), // Cumul de l'énergie
-      'voltage':
-          baseVoltage * (0.95 + _random.nextDouble() * 0.1), // 218.5-241.5V
-      'isOnline': true,
-      'isActive': true,
-      'lastUpdate': ServerValue.timestamp,
-    };
-
-    // Simuler occasionnellement une puissance élevée pour tester les alertes
-    if (_random.nextDouble() < 0.1) {
-      // 10% de chance
-      data['power'] =
-          4100.0 + _random.nextDouble() * 500; // Déclenchera une alerte
-    }
-
-    // Mettre à jour dans Firebase
-    _updateFirebase(meterId, data);
-  }
-
-  Future<void> _updateFirebase(
-      String meterId, Map<String, dynamic> data) async {
+  // Méthode pour simuler les données du compteur
+  Future<void> _simulateMeterData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -76,38 +45,13 @@ class MeterSimulatorService {
           .child('smart_meter')
           .child('compteur_simule_1');
 
-      await meterRef.update(data);
-    } catch (e) {
-      print('Erreur lors de la mise à jour des données: $e');
-    }
-  }
-
-  // Simuler une accumulation d'énergie réaliste
-  double _calculateEnergy() {
-    // Simuler une consommation qui augmente progressivement
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final hoursSinceStartOfDay = now.difference(startOfDay).inHours;
-
-    // Base de 0.5 kWh par heure avec variation aléatoire
-    return hoursSinceStartOfDay * (0.5 + _random.nextDouble() * 0.2);
-  }
-
-  // Méthode pour simuler les données du compteur
-  Future<void> _simulateMeterData() async {
-    try {
-      final databaseRef = FirebaseDatabase.instance.ref();
-      final meterRef = databaseRef
-          .child('compteurs') // Chemin global pour les compteurs
-          .child('compteur_simule_1');
-
       // Générer des valeurs aléatoires réalistes
-      final voltage = 220.0 + (Random().nextDouble() * 20 - 10); // 210-230V
-      final current = 5.0 + (Random().nextDouble() * 10); // 5-15A
+      final voltage = 220.0 + (_random.nextDouble() * 20 - 10); // 210-230V
+      final current = 5.0 + (_random.nextDouble() * 10); // 5-15A
       final power = voltage * current; // Puissance en watts
-      final powerFactor = 0.85 + (Random().nextDouble() * 0.15); // 0.85-1.0
-      final frequency = 49.8 + (Random().nextDouble() * 0.4); // 49.8-50.2Hz
-      final energy = power / 1000; // Énergie en kWh
+      final powerFactor = 0.85 + (_random.nextDouble() * 0.15); // 0.85-1.0
+      final frequency = 49.8 + (_random.nextDouble() * 0.4); // 49.8-50.2Hz
+      final energy = _calculateEnergy(); // Énergie en kWh
 
       final data = {
         'is_active': true,
@@ -122,16 +66,25 @@ class MeterSimulatorService {
           'powerFactor': powerFactor,
           'frequency': frequency
         },
-        'name': 'Compteur Simulé', // Ajout des champs comme dans l'image
+        'name': 'Compteur Simulé',
         'roomId': 'salon',
         'isOnline': true,
-        // 'settings': {}, // Laisser vide ou initialiser si besoin
-        // 'status': {}, // Laisser vide ou initialiser si besoin
       };
 
       await meterRef.update(data);
     } catch (e) {
       print('Erreur lors de la simulation des données: $e');
     }
+  }
+
+  // Simuler une accumulation d'énergie réaliste
+  double _calculateEnergy() {
+    // Simuler une consommation qui augmente progressivement
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final hoursSinceStartOfDay = now.difference(startOfDay).inHours;
+
+    // Base de 0.5 kWh par heure avec variation aléatoire
+    return hoursSinceStartOfDay * (0.5 + _random.nextDouble() * 0.2);
   }
 }

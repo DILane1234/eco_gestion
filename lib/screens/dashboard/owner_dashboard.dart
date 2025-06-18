@@ -22,7 +22,7 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   final FirebaseService _firebaseService = FirebaseService();
   final MeterSimulatorService _simulatorService = MeterSimulatorService();
   int _selectedIndex = 0;
-  bool _isLoading = false; // Ajout de la variable _isLoading
+  bool _isLoading = false;
   DateTime? _lastBackPressTime;
   bool _isExiting = false;
   static const String SIMULATED_METER_ID = 'compteur_simule_1';
@@ -57,19 +57,41 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     });
 
     try {
-      // Initialiser les données de consommation si nécessaire
-      await _firebaseService.initializeConsumptionData();
+      print('Début du chargement des données...');
 
       // Vérifier l'état de l'authentification
       final authState = await _firebaseService.checkAuthState();
+      print('État d\'authentification: $authState');
+
       if (!authState['isAuthenticated']) {
+        print('Utilisateur non authentifié');
         if (!mounted) return;
-        setState(() {
-          _isLoading = false;
-        });
         Navigator.pushReplacementNamed(context, AppRoutes.login);
         return;
       }
+
+      // Vérifier le type d'utilisateur
+      final userType = authState['userType'] as String?;
+      if (userType != 'owner') {
+        print('Type d\'utilisateur invalide: $userType');
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, AppRoutes.login);
+        return;
+      }
+
+      // Initialiser les données de consommation
+      print('Initialisation des données de consommation...');
+      await _firebaseService.initializeConsumptionData();
+      print('Données de consommation initialisées');
+
+      // Tester la connexion à Firebase
+      print('Test de connexion à Firebase...');
+      final isConnected = await _firebaseService.testDatabaseConnection();
+      if (!isConnected) {
+        throw Exception(
+            'Impossible de se connecter à Firebase. Veuillez vérifier votre connexion internet.');
+      }
+      print('Connexion à Firebase réussie');
 
       if (!mounted) return;
       setState(() {
@@ -78,13 +100,23 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     } catch (e) {
       print('Erreur lors du chargement des données: $e');
       if (!mounted) return;
+
       setState(() {
         _isLoading = false;
       });
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erreur de chargement: ${e.toString()}'),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Réessayer',
+            textColor: Colors.white,
+            onPressed: () {
+              _loadData();
+            },
+          ),
         ),
       );
     }
@@ -97,6 +129,40 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
       SystemChannels.platform.invokeMethod(
           'SystemNavigator.pop'); // Ferme proprement l'application
     }
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Chargement des données...',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SafeArea(
+      child: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          _buildHomeTab(),
+          _buildTenantsTab(),
+          _buildStatsTab(),
+        ],
+      ),
+    );
   }
 
   @override
@@ -142,8 +208,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
             IconButton(
               icon: const Icon(Icons.logout),
               onPressed: () async {
-                // Stocker le contexte dans une variable locale n'est pas suffisant
-                // car nous devons vérifier si le State est toujours monté
                 final bool? confirm = await showDialog<bool>(
                   context: context,
                   builder: (BuildContext context) {
@@ -166,11 +230,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                   },
                 );
 
-                // Si l'utilisateur confirme, se déconnecter
                 if (confirm == true) {
                   await _firebaseService.signOut();
                   if (mounted) {
-                    // Utiliser context directement après avoir vérifié mounted
                     Navigator.pushReplacementNamed(context, AppRoutes.login);
                   }
                 }
@@ -183,10 +245,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         bottomNavigationBar: BottomNavigationBar(
           items: const <BottomNavigationBarItem>[
             BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Accueil'),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.business),
-              label: 'Propriétés',
-            ),
             BottomNavigationBarItem(
               icon: Icon(Icons.people),
               label: 'Locataires',
@@ -201,28 +259,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           unselectedItemColor: Colors.grey,
           onTap: _onItemTapped,
         ),
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
-        ),
-      );
-    }
-
-    return SafeArea(
-      child: IndexedStack(
-        index: _selectedIndex,
-        children: [
-          _buildHomeTab(),
-          _buildPropertiesTab(),
-          _buildTenantsTab(),
-          _buildStatsTab(),
-        ],
       ),
     );
   }
@@ -296,58 +332,6 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     );
   }
 
-  Widget _buildPropertiesTab() {
-    return StreamBuilder<DatabaseEvent>(
-      stream: FirebaseDatabase.instance.ref('compteurs').onValue,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Text(
-                'Erreur de chargement des données des compteurs intelligents'),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        final data =
-            Map<String, dynamic>.from(snapshot.data!.snapshot.value as Map);
-        final meters = data.entries.map((entry) {
-          return SmartMeterCard(
-            meterId: entry.key,
-            isOwner: true,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => SmartMeterDetail(
-                    meterId: entry.key,
-                    isOwner: true,
-                  ),
-                ),
-              );
-            },
-          );
-        }).toList();
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Mes Compteurs Intelligents',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            ...meters,
-          ],
-        );
-      },
-    );
-  }
-
   Widget _buildTenantsTab() {
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -404,205 +388,252 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 
   Widget _buildStatsTab() {
     return FutureBuilder<Map<String, dynamic>>(
-      future: _firebaseService.getStatistics(true),
-      builder: (context, statsSnapshot) {
-        if (statsSnapshot.connectionState == ConnectionState.waiting) {
+      future: _firebaseService.getConsumptionData(true),
+      builder: (context, consumptionSnapshot) {
+        if (consumptionSnapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        if (statsSnapshot.hasError) {
-          return Center(child: Text('Erreur: ${statsSnapshot.error}'));
+        if (consumptionSnapshot.hasError) {
+          return Center(child: Text('Erreur: ${consumptionSnapshot.error}'));
         }
 
-        final stats = statsSnapshot.data ?? {};
+        final consumptionData = consumptionSnapshot.data ?? {};
+
+        // Conversion sécurisée des données mensuelles
+        Map<String, dynamic> monthlyData = {};
+        if (consumptionData['monthly_consumption'] != null) {
+          final rawData = consumptionData['monthly_consumption'];
+          if (rawData is Map) {
+            rawData.forEach((key, value) {
+              if (key is String && value is num) {
+                monthlyData[key] = value.toDouble();
+              }
+            });
+          }
+        }
+
+        // Conversion sécurisée des statistiques
+        Map<String, dynamic> statistics = {};
+        if (consumptionData['statistics'] != null) {
+          final rawStats = consumptionData['statistics'];
+          if (rawStats is Map) {
+            rawStats.forEach((key, value) {
+              if (key is String && value is num) {
+                statistics[key] = value.toDouble();
+              }
+            });
+          }
+        }
+
+        // Liste des valeurs mensuelles dans l'ordre
+        final List<double> monthlyValues = [
+          monthlyData['January'] ?? 0.0,
+          monthlyData['February'] ?? 0.0,
+          monthlyData['March'] ?? 0.0,
+          monthlyData['April'] ?? 0.0,
+          monthlyData['May'] ?? 0.0,
+          monthlyData['June'] ?? 0.0,
+          monthlyData['July'] ?? 0.0,
+          monthlyData['August'] ?? 0.0,
+          monthlyData['September'] ?? 0.0,
+          monthlyData['October'] ?? 0.0,
+          monthlyData['November'] ?? 0.0,
+          monthlyData['December'] ?? 0.0,
+        ];
 
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
             const Text(
-              'Statistiques de consommation',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 24),
-            FutureBuilder<List<double>>(
-              future: _firebaseService.getMonthlyData(true),
-              builder: (context, monthlySnapshot) {
-                if (monthlySnapshot.connectionState ==
-                    ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (monthlySnapshot.hasError) {
-                  return Center(
-                      child: Text('Erreur: ${monthlySnapshot.error}'));
-                }
-
-                final monthlyData = monthlySnapshot.data ?? [];
-
-                return SizedBox(
-                  width: double.infinity,
-                  height: 300,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: ClipRect(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 8),
-                        child: Container(
-                          height: 320,
-                          clipBehavior: Clip.hardEdge,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ConsumptionChart(
-                            monthlyData: monthlyData,
-                            title: 'Consommation mensuelle',
-                            barColor: Colors.green,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatCard(
-                    'Moyenne',
-                    '${stats['average']} kWh',
-                    Icons.show_chart,
-                    Colors.blue,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    'Maximum',
-                    '${stats['maximum']} kWh',
-                    Icons.arrow_upward,
-                    Colors.red,
-                  ),
-                ),
-              ],
+              'Statistiques de Consommation',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatCard(
-                    'Minimum',
-                    '${stats['minimum']} kWh',
-                    Icons.arrow_downward,
-                    Colors.green,
-                  ),
+
+            // Graphique de consommation
+            Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Consommation Mensuelle(kWh)',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Total: ${statistics['annual_total']?.toStringAsFixed(1) ?? 0} kWh',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final screenHeight = MediaQuery.of(context).size.height;
+                        final maxHeight = screenHeight * 0.4;
+                        final minHeight = 250.0;
+                        final height = constraints.maxWidth * 0.6;
+
+                        return ClipRect(
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: height.clamp(minHeight, maxHeight),
+                            child: ConsumptionChart(
+                              monthlyData: monthlyValues,
+                              title: '',
+                              barColor: Colors.green,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatCard(
-                    'Total annuel',
-                    '${stats['annual_total']} kWh',
-                    Icons.calendar_today,
-                    Colors.purple,
-                  ),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 24),
-            FutureBuilder<Map<String, dynamic>>(
-              future: _firebaseService.getConsumptionData(true),
-              builder: (context, consumptionSnapshot) {
-                if (consumptionSnapshot.connectionState ==
-                    ConnectionState.waiting) {
+
+            // Statistiques générales
+            Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Statistiques Générales',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 2.2,
+                      children: [
+                        _buildStatCard(
+                          'Consommation Moyenne',
+                          '${statistics['average']?.toStringAsFixed(1) ?? 0} kWh',
+                          Icons.analytics,
+                          Colors.blue,
+                        ),
+                        _buildStatCard(
+                          'Consommation Totale',
+                          '${statistics['annual_total']?.toStringAsFixed(1) ?? 0} kWh',
+                          Icons.summarize,
+                          Colors.green,
+                        ),
+                        _buildStatCard(
+                          'Consommation Maximale',
+                          '${statistics['maximum']?.toStringAsFixed(1) ?? 0} kWh',
+                          Icons.trending_up,
+                          Colors.orange,
+                        ),
+                        _buildStatCard(
+                          'Consommation Minimale',
+                          '${statistics['minimum']?.toStringAsFixed(1) ?? 0} kWh',
+                          Icons.trending_down,
+                          Colors.red,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Détails du compteur
+            StreamBuilder<DatabaseEvent>(
+              stream: FirebaseDatabase.instance
+                  .ref('compteurs/compteur_simule_1')
+                  .onValue,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(child: Text('Erreur: ${snapshot.error}'));
+                }
+
+                if (!snapshot.hasData ||
+                    snapshot.data!.snapshot.value == null) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                if (consumptionSnapshot.hasError) {
-                  return Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Icon(Icons.error_outline, color: Colors.red.shade700),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              'Erreur de chargement des données des compteurs intelligents',
-                              style: TextStyle(color: Colors.red.shade700),
-                            ),
+                final rawData = snapshot.data!.snapshot.value;
+                final meterData = rawData is Map
+                    ? Map<String, dynamic>.from(rawData as Map)
+                    : <String, dynamic>{};
+
+                return Card(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Détails du Compteur',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final consumptionData = consumptionSnapshot.data ?? {};
-                final smartMeters = consumptionData['compteurs'] as Map? ?? {};
-
-                if (smartMeters.isEmpty) {
-                  return Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue.shade700),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              'Aucun compteur intelligent disponible',
-                              style: TextStyle(color: Colors.blue.shade700),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                return ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: smartMeters.length,
-                  itemBuilder: (context, index) {
-                    final meterId = smartMeters.keys.elementAt(index);
-                    final meterData = smartMeters[meterId] as Map? ?? {};
-
-                    return Card(
-                      elevation: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      child: InkWell(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (context) => SmartMeterDetail(
-                                meterId: meterId,
-                                isOwner: true,
+                        ),
+                        const SizedBox(height: 16),
+                        InkWell(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => SmartMeterDetail(
+                                  meterId: 'compteur_simule_1',
+                                  isOwner: true,
+                                ),
                               ),
+                            );
+                          },
+                          child: Card(
+                            elevation: 2,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                          );
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.all(12),
+                                    padding: const EdgeInsets.all(8),
                                     decoration: BoxDecoration(
                                       color: Colors.green.shade100,
                                       shape: BoxShape.circle,
@@ -610,156 +641,121 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                                     child: Icon(
                                       Icons.electric_meter,
                                       color: Colors.green.shade700,
+                                      size: 20,
                                     ),
                                   ),
-                                  const SizedBox(width: 16),
+                                  const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          'Compteur $meterId',
+                                        const Text(
+                                          'Compteur Simulé',
                                           style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.bold,
                                           ),
-                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        SizedBox(height: 4),
-                                        Text(
-                                          'Consulter les données en temps réel',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.grey,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.circle,
+                                              color: (meterData['is_active'] ??
+                                                      false)
+                                                  ? Colors.green.shade500
+                                                  : Colors.red.shade500,
+                                              size: 8,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              (meterData['is_active'] ?? false)
+                                                  ? 'En ligne'
+                                                  : 'Hors ligne',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color:
+                                                    (meterData['is_active'] ??
+                                                            false)
+                                                        ? Colors.green.shade700
+                                                        : Colors.red.shade700,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ],
                                     ),
                                   ),
-                                  const Icon(Icons.arrow_forward_ios, size: 16),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    color: Colors.grey.shade400,
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 16),
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          Icons.power,
-                                          color: Colors.green.shade700,
-                                          size: 20,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Puissance actuelle',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color: Colors.grey.shade700,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '${((meterData['current_power'] ?? 0) / 1000).toStringAsFixed(1)} kW',
-                                                style: TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.green.shade700,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: (meterData['is_active'] ??
-                                                    false)
-                                                ? Colors.green.shade50
-                                                : Colors.red.shade50,
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                            border: Border.all(
-                                              color: (meterData['is_active'] ??
-                                                      false)
-                                                  ? Colors.green.shade200
-                                                  : Colors.red.shade200,
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.circle,
-                                                color:
-                                                    (meterData['is_active'] ??
-                                                            false)
-                                                        ? Colors.green.shade500
-                                                        : Colors.red.shade500,
-                                                size: 8,
-                                              ),
-                                              const SizedBox(width: 4),
-                                              Text(
-                                                (meterData['is_active'] ??
-                                                        false)
-                                                    ? 'En ligne'
-                                                    : 'Hors ligne',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  color:
-                                                      (meterData['is_active'] ??
-                                                              false)
-                                                          ? Colors
-                                                              .green.shade700
-                                                          : Colors.red.shade700,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    if (meterData['last_reading'] != null) ...[
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Dernière lecture: ${DateTime.fromMillisecondsSinceEpoch(meterData['last_reading']['timestamp'] ?? 0).toString().substring(0, 16)}',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                        if (meterData['last_reading'] != null) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            'Dernière mise à jour: ${DateTime.fromMillisecondsSinceEpoch(meterData['last_reading']['timestamp'] ?? 0).toString().substring(0, 16)}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 );
               },
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildDataTile(
+      String label, String value, String unit, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade700,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '$value $unit',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
     );
   }
 
@@ -774,11 +770,12 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(12.0),
+          padding: const EdgeInsets.all(8.0),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: Colors.green.shade100,
                   shape: BoxShape.circle,
@@ -786,10 +783,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 child: Icon(
                   icon,
                   color: Colors.green.shade700,
-                  size: 20,
+                  size: 18,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -798,24 +795,22 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                       ),
-                      maxLines: 2,
-                      softWrap: true,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 4),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        value,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w500,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),

@@ -27,7 +27,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signIn() async {
-    // 1. Valider le formulaire
     if (!_formKey.currentState!.validate()) {
       return;
     }
@@ -38,26 +37,20 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      // Afficher des informations de débogage
-      await _firebaseService.debugAuthentication();
-
       print(
           'Tentative de connexion avec email: ${_emailController.text.trim()}');
 
-      // 2. Tentative de connexion
       final result = await _firebaseService.signInWithEmailAndPassword(
         _emailController.text.trim(),
         _passwordController.text,
       );
 
-      print('Connexion réussie, résultat: $result');
-
       if (!mounted) return;
 
-      // 3. Rediriger vers le bon dashboard
       final userType = result['userType'] as String;
       print('Type d\'utilisateur: $userType');
 
+      // Redirection basée sur le type d'utilisateur
       if (userType == 'owner') {
         print('Redirection vers le dashboard propriétaire');
         Navigator.pushReplacementNamed(context, AppRoutes.ownerDashboard);
@@ -72,15 +65,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      // Afficher l'erreur
+      String errorMessage = e.toString();
+      if (errorMessage.startsWith('Exception: ')) {
+        errorMessage = errorMessage.substring('Exception: '.length);
+      }
+
       setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _errorMessage = errorMessage;
       });
 
-      // Afficher le message d'erreur
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_errorMessage ?? 'Erreur de connexion'),
+          content: Text(errorMessage),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 4),
           action: SnackBarAction(

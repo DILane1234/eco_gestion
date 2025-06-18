@@ -12,7 +12,6 @@ import 'package:eco_gestion/screens/settings/settings_screen.dart';
 import 'package:eco_gestion/screens/auth/forgot_password_screen.dart';
 import 'package:eco_gestion/screens/profile/profile_screen.dart';
 import 'firebase_options.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_database/firebase_database.dart';
 
 void main() async {
@@ -23,16 +22,16 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
 
-  // Initialize Firebase App Check with debug provider
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: AndroidProvider.debug,
-    appleProvider: AppleProvider.debug,
-    webProvider: ReCaptchaV3Provider('recaptcha-v3-site-key'),
-  );
-
   // Configure Firebase Database
-  FirebaseDatabase.instance.setPersistenceEnabled(true);
-  FirebaseDatabase.instance.setPersistenceCacheSizeBytes(10000000);
+  final database = FirebaseDatabase.instance;
+  database.setPersistenceEnabled(true);
+  database.setPersistenceCacheSizeBytes(10000000);
+
+  // Configurer la base de données pour une meilleure connexion
+  database.ref().keepSynced(true);
+
+  // Définir l'URL de la base de données si nécessaire
+  // database.databaseURL = 'https://votre-projet.firebaseio.com';
 
   runApp(const MyApp());
 }
