@@ -5,6 +5,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:eco_gestion/services/mqtt_service.dart';
 import 'package:eco_gestion/services/notification_service.dart';
 import 'package:eco_gestion/screens/smart_meter/meter_history_screen.dart';
+import 'package:eco_gestion/services/firebase_service.dart';
 
 class SmartMeterDetail extends StatefulWidget {
   final String meterId;
@@ -21,29 +22,25 @@ class SmartMeterDetail extends StatefulWidget {
 }
 
 class _SmartMeterDetailState extends State<SmartMeterDetail> {
-  // Suppression de la ligne suivante
-  // final FirebaseService _firebaseService = FirebaseService();
-  final DatabaseReference _meterRef =
-      FirebaseDatabase.instance.ref('compteurs');
-
+  final FirebaseService _firebaseService = FirebaseService();
+  bool _isLoading = true;
   bool _isOn = true;
   bool _hasError = false;
   bool _isOnline = true;
-
-  // Valeurs par défaut
   double _frequency = 49.9;
   double _powerFactor = 0.0;
   double _current = 0.0;
   double _power = 0.0;
   double _energy = 0.07;
   double _voltage = 216.3;
-
-  StreamSubscription<DatabaseEvent>? _meterSubscription;
+  StreamSubscription? _meterSubscription;
+  final DatabaseReference _meterRef =
+      FirebaseDatabase.instance.ref('compteurs');
 
   @override
   void initState() {
     super.initState();
-    _setupRealtimeUpdates();
+    _loadMeterData();
   }
 
   @override
@@ -52,13 +49,16 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
     super.dispose();
   }
 
-  void _setupRealtimeUpdates() {
-    _meterSubscription =
-        _meterRef.child(widget.meterId).onValue.listen((event) {
-      if (event.snapshot.value != null) {
-        final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+  Future<void> _loadMeterData() async {
+    try {
+      final meterRef = _meterRef.child(widget.meterId);
+      final snapshot = await meterRef.get();
 
+      if (!mounted) return;
+
+      if (snapshot.value != null) {
         setState(() {
+          final data = Map<String, dynamic>.from(snapshot.value as Map);
           _isOn = data['isOn'] ?? true;
           _hasError = data['hasError'] ?? false;
           _isOnline = data['isOnline'] ?? true;
@@ -69,16 +69,65 @@ class _SmartMeterDetailState extends State<SmartMeterDetail> {
           _power = data['power']?.toDouble() ?? 0.0;
           _energy = data['energy']?.toDouble() ?? 0.07;
           _voltage = data['voltage']?.toDouble() ?? 216.3;
+          _isLoading = false;
         });
-
-        // Vérifier s'il y a une erreur et afficher une alerte si nécessaire
-        if (_hasError && mounted) {
-          _showErrorAlert();
+      } else {
+        setState(() {
+          _isLoading = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Aucune donnée disponible pour ce compteur'),
+              backgroundColor: Colors.orange,
+            ),
+          );
         }
       }
-    }, onError: (error) {
-      print('Erreur de connexion à la base de données: $error');
-    });
+
+      // Écouter les changements en temps réel
+      _meterSubscription?.cancel(); // Annuler l'ancien abonnement s'il existe
+      _meterSubscription = meterRef.onValue.listen((event) {
+        if (event.snapshot.value != null && mounted) {
+          setState(() {
+            final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+            _isOn = data['isOn'] ?? true;
+            _hasError = data['hasError'] ?? false;
+            _isOnline = data['isOnline'] ?? true;
+
+            _frequency = data['frequency']?.toDouble() ?? 49.9;
+            _powerFactor = data['powerFactor']?.toDouble() ?? 0.0;
+            _current = data['current']?.toDouble() ?? 0.0;
+            _power = data['power']?.toDouble() ?? 0.0;
+            _energy = data['energy']?.toDouble() ?? 0.07;
+            _voltage = data['voltage']?.toDouble() ?? 216.3;
+          });
+        }
+      }, onError: (error) {
+        print('Erreur lors de l\'écoute des changements: $error');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erreur de connexion: $error'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      print('Erreur lors du chargement des données du compteur: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du chargement des données: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _showErrorAlert() {

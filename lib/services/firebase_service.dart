@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
+import 'dart:math';
 
 class FirebaseService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -462,26 +463,38 @@ class FirebaseService {
       final consumptionData = await consumptionRef.get();
       if (!consumptionData.exists) {
         print('Initialisation des données de consommation...');
+
+        // Générer des données de test réalistes
+        final random = Random();
+        final monthlyData = {
+          'January': 250.0 + random.nextDouble() * 50,
+          'February': 280.0 + random.nextDouble() * 50,
+          'March': 300.0 + random.nextDouble() * 50,
+          'April': 320.0 + random.nextDouble() * 50,
+          'May': 350.0 + random.nextDouble() * 50,
+          'June': 380.0 + random.nextDouble() * 50,
+          'July': 400.0 + random.nextDouble() * 50,
+          'August': 420.0 + random.nextDouble() * 50,
+          'September': 380.0 + random.nextDouble() * 50,
+          'October': 350.0 + random.nextDouble() * 50,
+          'November': 300.0 + random.nextDouble() * 50,
+          'December': 270.0 + random.nextDouble() * 50,
+        };
+
+        // Calculer les statistiques
+        final values = monthlyData.values.toList();
+        final average = values.reduce((a, b) => a + b) / values.length;
+        final maximum = values.reduce((a, b) => a > b ? a : b);
+        final minimum = values.reduce((a, b) => a < b ? a : b);
+        final annualTotal = values.reduce((a, b) => a + b);
+
         final initialData = {
-          'monthly_consumption': {
-            'January': 0.0,
-            'February': 0.0,
-            'March': 0.0,
-            'April': 0.0,
-            'May': 0.0,
-            'June': 0.0,
-            'July': 0.0,
-            'August': 0.0,
-            'September': 0.0,
-            'October': 0.0,
-            'November': 0.0,
-            'December': 0.0,
-          },
+          'monthly_consumption': monthlyData,
           'statistics': {
-            'average': 0.0,
-            'maximum': 0.0,
-            'minimum': 0.0,
-            'annual_total': 0.0,
+            'average': average,
+            'maximum': maximum,
+            'minimum': minimum,
+            'annual_total': annualTotal,
           },
           'last_updated': FieldValue.serverTimestamp(),
         };
@@ -492,59 +505,30 @@ class FirebaseService {
         print('Les données de consommation existent déjà');
       }
 
-      // Initialiser les données spécifiques au type d'utilisateur
-      if (userType == 'tenant') {
-        print('Initialisation des données spécifiques au locataire...');
-        final apartmentId = userData.data()?['apartmentId'] as String?;
+      // Initialiser les données du compteur simulé
+      print('Initialisation des données du compteur...');
+      final meterRef = FirebaseDatabase.instance
+          .ref()
+          .child('compteurs')
+          .child('compteur_simule_1');
+      final meterData = await meterRef.get();
 
-        if (apartmentId != null) {
-          print('Appartement trouvé: $apartmentId');
-          // Initialiser les données de l'appartement si nécessaire
-          final apartmentRef = _database
-              .child('apartments')
-              .child(apartmentId)
-              .child('consumption');
-
-          final apartmentData = await apartmentRef.get();
-          if (!apartmentData.exists) {
-            print('Initialisation des données de l\'appartement...');
-            await apartmentRef.set({
-              'current_reading': 0.0,
-              'last_reading': {
-                'timestamp': DateTime.now().millisecondsSinceEpoch,
-                'value': 0.0,
-              },
-              'status': 'active',
-            });
-            print('Données de l\'appartement initialisées avec succès');
-          } else {
-            print('Les données de l\'appartement existent déjà');
-          }
-        } else {
-          print('Aucun appartement assigné au locataire');
-        }
-      } else if (userType == 'owner') {
+      if (!meterData.exists) {
         print('Initialisation des données du compteur...');
-        final meterRef = FirebaseDatabase.instance
-            .ref()
-            .child('compteurs')
-            .child('compteur_simule_1');
-        final meterData = await meterRef.get();
-
-        if (!meterData.exists) {
-          print('Initialisation des données du compteur...');
-          await meterRef.set({
-            'is_active': true,
-            'last_reading': {
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
-              'value': 0.0,
-            },
-            'status': 'online',
-          });
-          print('Données du compteur initialisées avec succès');
-        } else {
-          print('Les données du compteur existent déjà');
-        }
+        await meterRef.set({
+          'is_active': true,
+          'last_reading': {
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+            'power': 1500.0,
+            'voltage': 220.0,
+            'current': 6.8,
+            'energy': 250.0,
+          },
+          'status': 'online',
+        });
+        print('Données du compteur initialisées avec succès');
+      } else {
+        print('Les données du compteur existent déjà');
       }
 
       print('Initialisation des données terminée avec succès');
@@ -561,25 +545,35 @@ class FirebaseService {
         throw Exception('Aucun utilisateur connecté');
       }
 
-      final userType = isOwner ? 'owner' : 'tenant';
-      print(
-          'Récupération des données pour l\'utilisateur ${currentUser!.uid} (type: $userType)');
+      print('Récupération des données pour l\'utilisateur ${currentUser!.uid}');
 
-      final snapshot = await _database
-          .child('users')
-          .child(currentUser!.uid)
-          .child('consumption')
-          .child(userType)
-          .get();
+      // Récupérer les données depuis Firestore
+      final consumptionRef = _firestore
+          .collection('users')
+          .doc(currentUser!.uid)
+          .collection('consumption_data')
+          .doc('current');
 
-      if (snapshot.exists) {
-        final data = Map<String, dynamic>.from(snapshot.value as Map);
-        print('Données récupérées: $data');
-        return data;
+      final consumptionDoc = await consumptionRef.get();
+
+      if (!consumptionDoc.exists) {
+        print('Aucune donnée de consommation trouvée');
+        return {};
       }
 
-      print('Aucune donnée trouvée pour l\'utilisateur ${currentUser!.uid}');
-      return {};
+      final data = consumptionDoc.data() as Map<String, dynamic>;
+      print('Données récupérées: $data');
+
+      // Récupérer les données du compteur simulé
+      final meterRef = _database.child('compteurs').child('compteur_simule_1');
+      final meterData = await meterRef.get();
+
+      if (meterData.exists) {
+        final meterInfo = Map<String, dynamic>.from(meterData.value as Map);
+        data['smart_meter'] = {'compteur_simule_1': meterInfo};
+      }
+
+      return data;
     } catch (e) {
       print('Erreur lors de la récupération des données: $e');
       return {};
@@ -597,13 +591,22 @@ class FirebaseService {
           .toList();
     }
 
-    return [];
+    return List.filled(
+        12, 0.0); // Retourner une liste de 12 zéros si pas de données
   }
 
   // Méthode pour récupérer les statistiques
   Future<Map<String, dynamic>> getStatistics(bool isOwner) async {
     final data = await getConsumptionData(isOwner);
-    return Map<String, dynamic>.from(data['statistics'] as Map? ?? {});
+    final stats = data['statistics'] as Map? ?? {};
+
+    // S'assurer que toutes les clés nécessaires existent
+    return {
+      'average': stats['average'] ?? 0.0,
+      'maximum': stats['maximum'] ?? 0.0,
+      'minimum': stats['minimum'] ?? 0.0,
+      'annual_total': stats['annual_total'] ?? 0.0,
+    };
   }
 
   // Méthode pour récupérer les données du compteur intelligent
@@ -679,18 +682,6 @@ class FirebaseService {
         };
       }
 
-      // Vérifier les données spécifiques au type d'utilisateur
-      if (userType == 'tenant') {
-        print('Vérification des données spécifiques au locataire...');
-        // Vérifier si le locataire a un appartement assigné
-        final apartmentId = userData['apartmentId'] as String?;
-        if (apartmentId == null) {
-          print('Aucun appartement assigné au locataire');
-        } else {
-          print('Appartement assigné: $apartmentId');
-        }
-      }
-
       print('Vérification d\'authentification réussie pour: ${user.email}');
       print('Type d\'utilisateur: $userType');
       print('Nom: ${userData['name'] as String? ?? 'Non défini'}');
@@ -704,7 +695,6 @@ class FirebaseService {
         'hasFirestoreData': true,
         'userType': userType,
         'name': userData['name'] as String? ?? 'Utilisateur',
-        'apartmentId': userData['apartmentId'] as String?,
       };
     } catch (e) {
       print('Erreur lors de la vérification de l\'authentification: $e');
@@ -909,6 +899,51 @@ class FirebaseService {
       print('Erreur lors de l\'initialisation des données du locataire: $e');
       throw Exception(
           'Erreur lors de l\'initialisation des données du locataire: $e');
+    }
+  }
+
+  // Méthode pour assigner un appartement à un locataire
+  Future<void> assignApartmentToTenant(
+      String tenantId, String apartmentId) async {
+    try {
+      print(
+          'Tentative d\'assignation de l\'appartement $apartmentId au locataire $tenantId');
+
+      // Vérifier si l'appartement existe
+      final apartmentRef = _database.child('apartments').child(apartmentId);
+      final apartmentData = await apartmentRef.get();
+
+      if (!apartmentData.exists) {
+        throw Exception('Appartement non trouvé');
+      }
+
+      // Vérifier si le locataire existe
+      final tenantRef = _firestore.collection('users').doc(tenantId);
+      final tenantData = await tenantRef.get();
+
+      if (!tenantData.exists) {
+        throw Exception('Locataire non trouvé');
+      }
+
+      // Vérifier que c'est bien un locataire
+      final userType = tenantData.data()?['userType'] as String?;
+      if (userType != 'tenant') {
+        throw Exception('L\'utilisateur n\'est pas un locataire');
+      }
+
+      // Mettre à jour les données du locataire
+      await tenantRef.update({
+        'apartmentId': apartmentId,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      });
+
+      // Initialiser les données de consommation pour l'appartement
+      await initializeTenantData(apartmentId);
+
+      print('Appartement assigné avec succès au locataire');
+    } catch (e) {
+      print('Erreur lors de l\'assignation de l\'appartement: $e');
+      throw Exception('Erreur lors de l\'assignation de l\'appartement: $e');
     }
   }
 }

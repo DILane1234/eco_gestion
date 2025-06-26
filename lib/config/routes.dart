@@ -10,6 +10,9 @@ import 'package:flutter/material.dart';
 import 'package:eco_gestion/screens/auth/splash_screen.dart';
 import 'package:eco_gestion/screens/auth/login_screen.dart';
 import 'package:eco_gestion/screens/auth/auth_check.dart';
+import 'package:eco_gestion/screens/smart_meter/meter_history_screen.dart';
+import 'package:eco_gestion/screens/prepaid/owner_prepaid_screen.dart';
+import 'package:eco_gestion/screens/prepaid/tenant_prepaid_screen.dart';
 
 class AppRoutes {
   // Définition des constantes de routes
@@ -24,32 +27,30 @@ class AppRoutes {
   static const String tenantDashboard = '/tenant-dashboard';
   static const String forgotPassword = '/forgot-password';
   static const String register = '/register';
+  static const String meterHistory = '/meter-history';
+  static const String ownerPrepaid = '/owner-prepaid';
+  static const String tenantPrepaid = '/tenant-prepaid';
 
   // Map des routes
   static final Map<String, WidgetBuilder> routes = {
     splash: (context) => const SplashScreen(),
     login: (context) => const LoginScreen(),
     authCheck: (context) => const AuthCheck(),
-    // Ajoutez vos autres routes ici
     ownerDashboard: (context) => const OwnerDashboard(),
     tenantDashboard: (context) => const TenantDashboard(),
     profile: (context) => const ProfileScreen(),
     settings: (context) => const SettingsScreen(),
     forgotPassword: (context) => const ForgotPasswordScreen(),
     register: (context) => const RegisterScreen(),
-    // Supprimer cette ligne
-    // smartMeterDetail: (context) =>
-    //     const SmartMeterDetail(meterId: 'compteur_simule_1', isOwner: true),
     changePassword: (context) => const ChangePasswordScreen(),
+    ownerPrepaid: (context) => const OwnerPrepaidScreen(),
+    tenantPrepaid: (context) => const TenantPrepaidScreen(),
   };
 
   // Ajouter cette méthode dans la classe AppRoutes
   static Route<dynamic> onGenerateRoute(RouteSettings settings) {
     if (settings.name == smartMeterDetail) {
-      // Récupérer les arguments
       final args = settings.arguments as Map<String, dynamic>?;
-
-      // Vérifier si l'ID du compteur est fourni
       if (args == null || args['meterId'] == null) {
         return MaterialPageRoute(
           builder: (context) => const Scaffold(
@@ -57,11 +58,26 @@ class AppRoutes {
           ),
         );
       }
-
       return MaterialPageRoute(
         builder: (context) => SmartMeterDetail(
           meterId: args['meterId'] as String,
           isOwner: args['isOwner'] as bool,
+        ),
+      );
+    }
+
+    if (settings.name == meterHistory) {
+      final args = settings.arguments as Map<String, dynamic>?;
+      if (args == null || args['meterId'] == null) {
+        return MaterialPageRoute(
+          builder: (context) => const Scaffold(
+            body: Center(child: Text('Erreur: ID du compteur manquant')),
+          ),
+        );
+      }
+      return MaterialPageRoute(
+        builder: (context) => MeterHistoryScreen(
+          meterId: args['meterId'] as String,
         ),
       );
     }

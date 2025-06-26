@@ -1,34 +1,34 @@
 {
   "rules": {
-    "users": {
-      "$uid": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "history": {
+      "$meterId": {
         ".read": "auth != null",
         ".write": "auth != null",
-        
-        "monthly_consumption": {
-          ".read": "auth != null",
-          ".write": "auth != null"
-        },
-        
-        "smart_meter": {
-          "$meterId": {
-            ".read": "auth != null",
-            ".write": "auth != null"
-          }
-        }
+        ".indexOn": ["timestamp"]
       }
     },
-
+    "meters": {
+      "$meterId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "users": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId"
+      }
+    },
     "public_data": {
       ".read": true,
       ".write": false
     },
-
     "test": {
       ".read": "auth != null",
       ".write": "auth != null"
     },
-
     "compteurs": {
       ".read": "auth != null",
       ".write": "auth != null",
@@ -37,7 +37,6 @@
         ".write": "auth != null"
       }
     },
-
     "consumption": {
       ".read": "auth != null",
       ".write": "auth != null",
@@ -49,9 +48,6 @@
         ".read": "auth != null",
         ".write": "auth != null"
       }
-    },
-
-    ".read": false,
-    ".write": false
+    }
   }
 } 

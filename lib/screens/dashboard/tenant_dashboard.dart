@@ -94,9 +94,34 @@ class _TenantDashboardState extends State<TenantDashboard> {
       // Initialiser les données de consommation si nécessaire
       await _firebaseService.initializeConsumptionData();
 
+      // Charger les données de consommation
+      final consumptionData = await _firebaseService.getConsumptionData(false);
+      print('Données de consommation chargées: $consumptionData');
+
+      // Charger les données du compteur simulé
+      final meterRef = FirebaseDatabase.instance
+          .ref()
+          .child('compteurs')
+          .child(SIMULATED_METER_ID);
+      final meterData = await meterRef.get();
+      final smartMeterData =
+          Map<String, dynamic>.from(meterData.value as Map? ?? {});
+
       if (!mounted) return;
       setState(() {
+        _consumptionData = consumptionData;
+        _smartMeterData = smartMeterData;
         _isLoading = false;
+      });
+
+      // Configurer l'écoute des mises à jour du compteur
+      meterRef.onValue.listen((event) {
+        if (event.snapshot.value != null && mounted) {
+          setState(() {
+            _smartMeterData =
+                Map<String, dynamic>.from(event.snapshot.value as Map);
+          });
+        }
       });
     } catch (e) {
       print('Erreur lors du chargement des données: $e');
@@ -160,6 +185,13 @@ class _TenantDashboardState extends State<TenantDashboard> {
           title: const Text('Tableau de bord'),
           actions: [
             IconButton(
+              icon: const Icon(Icons.account_balance_wallet),
+              onPressed: () {
+                Navigator.pushNamed(context, AppRoutes.tenantPrepaid);
+              },
+              tooltip: 'Gestion Prépayée',
+            ),
+            IconButton(
               icon: const Icon(Icons.person),
               onPressed: () {
                 Navigator.pushNamed(context, AppRoutes.profile);
@@ -221,10 +253,6 @@ class _TenantDashboardState extends State<TenantDashboard> {
               label: 'Consommation',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              label: 'Historique',
-            ),
-            BottomNavigationBarItem(
               icon: Icon(Icons.tips_and_updates),
               label: 'Conseils',
             ),
@@ -253,8 +281,6 @@ class _TenantDashboardState extends State<TenantDashboard> {
       case 1:
         return _buildConsumptionTab();
       case 2:
-        return _buildHistoryTab();
-      case 3:
         return _buildTipsTab();
       default:
         return _buildHomeTab();
@@ -331,11 +357,12 @@ class _TenantDashboardState extends State<TenantDashboard> {
             const SizedBox(height: 24),
             _buildConsumptionCard(
               'Puissance Actuelle',
-              currentPower.toString(),
+              currentPower.toStringAsFixed(1),
               'W',
               Icons.electric_bolt,
               Colors.blue,
               subtitle: 'Puissance instantanée',
+              isPowerCard: true,
             ),
             const SizedBox(height: 16),
             _buildConsumptionCard(
@@ -358,7 +385,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
             const SizedBox(height: 16),
             _buildConsumptionCard(
               'Coût Estimé',
-              estimatedCost.toString(),
+              estimatedCost.toStringAsFixed(1),
               'FCFA',
               Icons.attach_money,
               Colors.purple,
@@ -372,7 +399,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
 
   Widget _buildConsumptionCard(
       String title, String value, String unit, IconData icon, Color color,
-      {String? subtitle, Widget? chart}) {
+      {String? subtitle, Widget? chart, bool isPowerCard = false}) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -446,7 +473,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
               Text(
                 value,
                 style: TextStyle(
-                  fontSize: 28,
+                  fontSize: isPowerCard ? 20 : 28,
                   fontWeight: FontWeight.bold,
                   color: color,
                 ),
@@ -457,7 +484,7 @@ class _TenantDashboardState extends State<TenantDashboard> {
                 child: Text(
                   unit,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: isPowerCard ? 12 : 14,
                     color: color.withOpacity(0.7),
                     fontWeight: FontWeight.w500,
                   ),
@@ -595,361 +622,338 @@ class _TenantDashboardState extends State<TenantDashboard> {
     final monthlyData = _consumptionData['monthly_consumption'] as Map? ?? {};
     final statistics = _consumptionData['statistics'] as Map? ?? {};
 
-    // Données du compteur intelligent (depuis _smartMeterData)
-    final lastReading = _smartMeterData['last_reading'] as Map? ?? {};
+    // Liste des valeurs mensuelles dans l'ordre
+    final List<double> monthlyValues = [
+      monthlyData['January'] ?? 0.0,
+      monthlyData['February'] ?? 0.0,
+      monthlyData['March'] ?? 0.0,
+      monthlyData['April'] ?? 0.0,
+      monthlyData['May'] ?? 0.0,
+      monthlyData['June'] ?? 0.0,
+      monthlyData['July'] ?? 0.0,
+      monthlyData['August'] ?? 0.0,
+      monthlyData['September'] ?? 0.0,
+      monthlyData['October'] ?? 0.0,
+      monthlyData['November'] ?? 0.0,
+      monthlyData['December'] ?? 0.0,
+    ];
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // En-tête avec statistiques globales
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Statistiques Annuelles',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Graphique de consommation
+        Card(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Consommation Mensuelle(kWh)',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildStatisticItem(
-                          'Total Annuel',
-                          '${statistics['annual_total'] ?? 0}',
-                          'kWh',
-                          Icons.calendar_today,
-                          Colors.blue,
+                    const SizedBox(height: 4),
+                    Text(
+                      'Total: ${statistics['annual_total']?.toStringAsFixed(1) ?? 0} kWh',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final screenHeight = MediaQuery.of(context).size.height;
+                    final maxHeight = screenHeight * 0.4;
+                    final minHeight = 250.0;
+                    final height = constraints.maxWidth * 0.6;
+
+                    return ClipRect(
+                      child: SizedBox(
+                        width: constraints.maxWidth,
+                        height: height.clamp(minHeight, maxHeight),
+                        child: ConsumptionChart(
+                          monthlyData: monthlyValues,
+                          title: '',
+                          barColor: Colors.green,
                         ),
                       ),
-                      Expanded(
-                        child: _buildStatisticItem(
-                          'Maximum',
-                          '${statistics['maximum'] ?? 0}',
-                          'kWh',
-                          Icons.arrow_upward,
-                          Colors.red,
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Détails du compteur
+        StreamBuilder<DatabaseEvent>(
+          stream: FirebaseDatabase.instance
+              .ref('compteurs/compteur_simule_1')
+              .onValue,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(child: Text('Erreur: ${snapshot.error}'));
+            }
+
+            if (!snapshot.hasData || snapshot.data!.snapshot.value == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final rawData = snapshot.data!.snapshot.value;
+            final meterData = rawData is Map
+                ? Map<String, dynamic>.from(rawData as Map)
+                : <String, dynamic>{};
+
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Détails du Compteur',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    InkWell(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => SmartMeterDetail(
+                              meterId: 'compteur_simule_1',
+                              isOwner: false,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade100,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  Icons.electric_meter,
+                                  color: Colors.green.shade700,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Compteur Simulé',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.circle,
+                                          color:
+                                              (meterData['is_active'] ?? false)
+                                                  ? Colors.green.shade500
+                                                  : Colors.red.shade500,
+                                          size: 8,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          (meterData['is_active'] ?? false)
+                                              ? 'En ligne'
+                                              : 'Hors ligne',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: (meterData['is_active'] ??
+                                                    false)
+                                                ? Colors.green.shade700
+                                                : Colors.red.shade700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right,
+                                color: Colors.grey.shade400,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      Expanded(
-                        child: _buildStatisticItem(
-                          'Minimum',
-                          '${statistics['minimum'] ?? 0}',
-                          'kWh',
-                          Icons.arrow_downward,
-                          Colors.green,
+                    ),
+                    if (meterData['last_reading'] != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Dernière mise à jour: ${DateTime.fromMillisecondsSinceEpoch(meterData['last_reading']['timestamp'] ?? 0).toString().substring(0, 16)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
                         ),
                       ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ),
-          const SizedBox(height: 24),
+            );
+          },
+        ),
 
-          // Détails du compteur intelligent
-          Card(
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Détails du Compteur Intelligent',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+        // Statistiques générales
+        Card(
+          margin: const EdgeInsets.symmetric(vertical: 8),
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Statistiques Générales',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 2.2,
+                  children: [
+                    _buildStatCard(
+                      'Consommation Moyenne',
+                      '${statistics['average']?.toStringAsFixed(1) ?? 0} kWh',
+                      Icons.analytics,
+                      Colors.blue,
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDetailRow(
-                    'État',
-                    _smartMeterData['is_active'] == true ? 'Actif' : 'Inactif',
-                    _smartMeterData['is_active'] == true
-                        ? Colors.green
-                        : Colors.red,
-                  ),
-                  _buildDetailRow(
-                    'Puissance Actuelle',
-                    '${_smartMeterData['current_power'] ?? 0} W',
-                    Colors.blue,
-                  ),
-                  _buildDetailRow(
-                    'Dernière Lecture',
-                    '${lastReading['value'] ?? 0} kWh',
-                    Colors.orange,
-                  ),
-                  _buildDetailRow(
-                    'Date de Lecture',
-                    _formatTimestamp(lastReading['timestamp']),
-                    Colors.purple,
-                  ),
-                ],
-              ),
+                    _buildStatCard(
+                      'Consommation Totale',
+                      '${statistics['annual_total']?.toStringAsFixed(1) ?? 0} kWh',
+                      Icons.summarize,
+                      Colors.green,
+                    ),
+                    _buildStatCard(
+                      'Consommation Maximale',
+                      '${statistics['maximum']?.toStringAsFixed(1) ?? 0} kWh',
+                      Icons.trending_up,
+                      Colors.orange,
+                    ),
+                    _buildStatCard(
+                      'Consommation Minimale',
+                      '${statistics['minimum']?.toStringAsFixed(1) ?? 0} kWh',
+                      Icons.trending_down,
+                      Colors.red,
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 24),
-
-          // Graphique de consommation mensuelle
-          const Text(
-            'Consommation Mensuelle',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          _buildMonthlyConsumptionList(monthlyData),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatisticItem(
-      String label, String value, String unit, IconData icon, Color color) {
-    return Column(
-      children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
-        Text(
-          unit,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
           ),
         ),
       ],
     );
   }
 
-  Widget _buildDetailRow(String label, String value, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.grey,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _formatTimestamp(dynamic timestamp) {
-    if (timestamp == null) return 'Non disponible';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp as int);
-    return '${date.day}/${date.month}/${date.year} ${date.hour}:${date.minute}';
-  }
-
-  Widget _buildMonthlyConsumptionList(Map monthlyData) {
-    final months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December'
-    ];
-
+  Widget _buildStatCard(
+      String title, String value, IconData icon, Color color) {
     return Card(
       elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: months.map((month) {
-            final value = (monthlyData[month] ?? 0) as num;
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: Row(
+        padding: const EdgeInsets.all(8.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                icon,
+                color: Colors.green.shade700,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 100,
-                    child: Text(
-                      month,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    child: LinearProgressIndicator(
-                      value: value / 300, // Normalisé sur 300 kWh
-                      backgroundColor: Colors.grey[200],
-                      valueColor:
-                          const AlwaysStoppedAnimation<Color>(Colors.blue),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
                   Text(
-                    '${value.toStringAsFixed(1)} kWh',
+                    title,
                     style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.bold,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
-            );
-          }).toList(),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
-  Widget _buildHistoryTab() {
-    return FutureBuilder<Map<String, dynamic>>(
-      future: _firebaseService.getStatistics(false),
-      builder: (context, statsSnapshot) {
-        if (statsSnapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        if (statsSnapshot.hasError) {
-          return Center(child: Text('Erreur: ${statsSnapshot.error}'));
-        }
-
-        final stats = statsSnapshot.data ?? {};
-
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Historique de consommation',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
-              FutureBuilder<List<double>>(
-                future: _firebaseService.getMonthlyData(false),
-                builder: (context, monthlySnapshot) {
-                  if (monthlySnapshot.connectionState ==
-                      ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-
-                  if (monthlySnapshot.hasError) {
-                    return Center(
-                        child: Text('Erreur: ${monthlySnapshot.error}'));
-                  }
-
-                  final monthlyData = monthlySnapshot.data ?? [];
-
-                  if (monthlyData.isEmpty) {
-                    return const Center(
-                        child: Text('Aucune donnée disponible'));
-                  }
-
-                  return SizedBox(
-                    width: double.infinity,
-                    height: 300,
-                    child: ConsumptionChart(
-                      monthlyData: monthlyData,
-                      title: 'Consommation mensuelle',
-                      barColor: Colors.green,
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Détails mensuels',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 16),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: 12,
-                itemBuilder: (context, index) {
-                  final monthNames = [
-                    'Janvier',
-                    'Février',
-                    'Mars',
-                    'Avril',
-                    'Mai',
-                    'Juin',
-                    'Juillet',
-                    'Août',
-                    'Septembre',
-                    'Octobre',
-                    'Novembre',
-                    'Décembre'
-                  ];
-                  final month = monthNames[index];
-                  final consumption =
-                      stats['monthly_consumption']?[month] ?? 0.0;
-
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withAlpha(26),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(Icons.calendar_month,
-                            color: Colors.green.shade700),
-                      ),
-                      title: Text(month),
-                      subtitle: Text(
-                          'Consommation: ${consumption.toStringAsFixed(1)} kWh'),
-                      trailing: Icon(Icons.chevron_right,
-                          color: Colors.grey.shade400),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
